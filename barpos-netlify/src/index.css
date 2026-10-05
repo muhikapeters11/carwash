@@ -1,0 +1,247 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  color-scheme: only light;
+
+  --bg: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-muted: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --border: #cbd5e1;
+  --input-bg: #ffffff;
+  --input-text: #0f172a;
+}
+
+html.dark {
+  color-scheme: only dark;
+  --bg: #0b1220;
+  --bg-card: #1e293b;
+  --bg-muted: #334155;
+  --text: #f8fafc;
+  --text-muted: #cbd5e1;
+  --border: #475569;
+  --input-bg: #0f172a;
+  --input-text: #f8fafc;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Force readable text in both themes */
+.text-slate-500, .text-slate-400, .text-slate-600 {
+  color: var(--text-muted) !important;
+}
+.text-slate-700, .text-slate-800, .text-slate-900 {
+  color: var(--text) !important;
+}
+html.dark .text-slate-500,
+html.dark .text-slate-400,
+html.dark .text-slate-600,
+html.dark .text-slate-700,
+html.dark .text-slate-800,
+html.dark .text-slate-900 {
+  color: var(--text-muted) !important;
+}
+html.dark .font-bold.text-slate-800,
+html.dark .font-semibold.text-slate-800,
+html.dark .font-medium.text-slate-800 {
+  color: var(--text) !important;
+}
+
+/* Cards / panels */
+.bg-white {
+  background-color: var(--bg-card) !important;
+}
+.bg-slate-50, .bg-slate-100 {
+  background-color: var(--bg-muted) !important;
+}
+html.dark .bg-white { background-color: var(--bg-card) !important; }
+html.dark .border-slate-200,
+html.dark .border-slate-100 {
+  border-color: var(--border) !important;
+}
+
+button, [role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+input, select, textarea {
+  font-size: 16px !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a !important;
+  border: 1px solid #94a3b8 !important;
+  border-radius: 0.75rem;
+  padding: 0.7rem 0.9rem;
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  caret-color: #f8fafc !important;
+  border-color: #64748b !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b !important;
+  -webkit-text-fill-color: #64748b !important;
+  opacity: 1 !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #94a3b8 !important;
+  -webkit-text-fill-color: #94a3b8 !important;
+}
+
+input:-webkit-autofill {
+  -webkit-text-fill-color: #0f172a !important;
+  box-shadow: 0 0 0 1000px #fff inset !important;
+}
+html.dark input:-webkit-autofill {
+  -webkit-text-fill-color: #f8fafc !important;
+  box-shadow: 0 0 0 1000px #0f172a inset !important;
+}
+
+@media print {
+  body * { visibility: hidden !important; }
+  .thermal-receipt, .thermal-receipt * { visibility: visible !important; }
+  .thermal-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  .print\:hidden { display: none !important; }
+}
+
+
+@page {
+  margin: 0;
+  size: auto;
+}
+
+@media print {
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+  body * { visibility: hidden !important; }
+  .thermal-receipt, .thermal-receipt * { visibility: visible !important; }
+  .thermal-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    color: #000 !important;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print\:hidden { display: none !important; visibility: hidden !important; }
+}
+
+
+/* touch boost */
+button,
+[role="button"],
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:active,
+[role="button"]:active {
+  opacity: 0.92;
+}
+
+
+/* ---- Visible typing + keyboard room ---- */
+input, select, textarea {
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
+  caret-color: var(--input-text) !important;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  font-size: 16px; /* reduces iOS zoom */
+  line-height: 1.4;
+  -webkit-text-fill-color: var(--input-text) !important;
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
+  -webkit-text-fill-color: var(--input-text) !important;
+  caret-color: #f8fafc !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted) !important;
+  opacity: 0.8;
+}
+
+/* Highlight field being edited */
+[data-kb-active="true"],
+input:focus, textarea:focus, select:focus {
+  outline: 2px solid #f59e0b !important;
+  outline-offset: 1px;
+  border-color: #f59e0b !important;
+}
+
+/* When on-screen keyboard is open, leave space to scroll fields above it */
+body.kb-open main,
+body.kb-open .overflow-y-auto,
+body.kb-open [class*="overflow-y"] {
+  scroll-padding-bottom: 340px;
+}
+
+body.kb-open .fixed.inset-0 .overflow-y-auto,
+body.kb-open .fixed.inset-0.sm\:items-center {
+  padding-bottom: 300px !important;
+}
+
+
+/* Thermal receipt print */
+@media print {
+  @page { margin: 0; size: auto; }
+  body * { visibility: hidden !important; }
+  .thermal-receipt, .thermal-receipt * { visibility: visible !important; }
+  .thermal-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  .print\:hidden { display: none !important; }
+}
