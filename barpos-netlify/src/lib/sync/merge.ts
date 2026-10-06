@@ -68,11 +68,11 @@ export function mergeCatalogCloudFirst(
     if (!lp?.id) continue;
     const existing = byId.get(lp.id);
     if (!existing) {
-      // Keep local-only only if created offline (has a real updated_at within last 30 days)
-      // Drop old sample/mock rows so phone matches cloud
+      // Local-only: keep briefly so offline-created products survive until push
+      // After cloud has a catalog, deleted cloud rows disappear on other devices
       const updated = new Date(lp.updated_at || 0).getTime();
       const age = Date.now() - updated;
-      if (updated > 0 && age < 30 * 24 * 60 * 60 * 1000) {
+      if (updated > 0 && age < 2 * 24 * 60 * 60 * 1000) {
         byId.set(lp.id, lp);
       }
     } else {

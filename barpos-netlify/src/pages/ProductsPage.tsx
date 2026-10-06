@@ -2,13 +2,14 @@ import { useState, useRef } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { formatMoney, groupProductsByCategory } from "@/lib/utils";
 import type { Product, ProductCategory } from "@/types";
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { compressImageDataUrl } from "@/lib/compressImage";
 
 export function ProductsPage() {
   const products = useAppStore((s) => s.products);
   const addProduct = useAppStore((s) => s.addProduct);
   const updateProduct = useAppStore((s) => s.updateProduct);
+  const deleteProduct = useAppStore((s) => s.deleteProduct);
   const setProducts = useAppStore((s) => s.setProducts);
   const groups = groupProductsByCategory(products);
   const [showForm, setShowForm] = useState(false);
@@ -179,6 +180,16 @@ export function ProductsPage() {
                     <td className="px-3 py-2">
                       <button onClick={() => openEdit(p)} className="p-2 rounded-lg hover:bg-[var(--bg-muted)] text-amber-600">
                         <Pencil size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Delete product "${p.name}"?`)) deleteProduct(p.id);
+                        }}
+                        className="p-2 rounded-lg text-red-600 hover:bg-red-50"
+                        title="Delete"
+                      >
+                        <Trash2 size={18} />
                       </button>
                     </td>
                   </tr>

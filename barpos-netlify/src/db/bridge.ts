@@ -193,7 +193,14 @@ export function scheduleDexieSave(state: Parameters<typeof snapshotFromZustand>[
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     void saveSnapshotToDexie(snapshotFromZustand(state));
-  }, 250);
+  }, 200);
+}
+
+/** Immediate write so refresh does not lose the last sale/product change */
+export function flushDexieSave(state: Parameters<typeof snapshotFromZustand>[0]) {
+  if (saveTimer) clearTimeout(saveTimer);
+  ready = true;
+  void saveSnapshotToDexie(snapshotFromZustand(state));
 }
 
 /** Try migrate old zustand localStorage key into Dexie once */

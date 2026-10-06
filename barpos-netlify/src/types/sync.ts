@@ -5,6 +5,8 @@ export type PendingOpType =
   | "stock_audit"
   | "expense"
   | "product_upsert"
+  | "product_delete"
+  | "expense_delete"
   | "supplier_upsert"
   | "user_upsert"
   | "user_delete"

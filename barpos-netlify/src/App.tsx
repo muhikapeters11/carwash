@@ -123,6 +123,7 @@ function App() {
       if (cancelled) return;
 
       unsubApp = useAppStore.subscribe((state) => {
+        // Local DB always updated; debounced write
         scheduleDexieSave(state);
       });
       unsubSync = useSyncStore.subscribe((s) => {
@@ -232,7 +233,7 @@ function App() {
       <div className="h-screen w-screen flex items-center justify-center bg-slate-900 text-white">
         <div className="text-center">
           <div className="text-lg font-bold mb-2">Bar POS</div>
-          <div className="text-sm text-slate-400">Loading shared data…</div>
+          <div className="text-sm text-slate-400">Loading…</div>
         </div>
       </div>
     );

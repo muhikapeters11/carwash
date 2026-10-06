@@ -176,6 +176,29 @@ const handlers: Record<string, Handler> = {
     );
   },
 
+
+  product_delete: async (cfg, op) => {
+    const payload = op.payload as { id: string };
+    const { supabaseRest } = await import("@/lib/supabase");
+    const { error, status } = await supabaseRest(cfg, "products", {
+      method: "DELETE",
+      query: `id=eq.${encodeURIComponent(payload.id)}`,
+    });
+    if (error && status !== 404) return toPushFailure(error, status);
+    return { ok: true };
+  },
+
+  expense_delete: async (cfg, op) => {
+    const payload = op.payload as { id: string };
+    const { supabaseRest } = await import("@/lib/supabase");
+    const { error, status } = await supabaseRest(cfg, "expenses", {
+      method: "DELETE",
+      query: `id=eq.${encodeURIComponent(payload.id)}`,
+    });
+    if (error && status !== 404) return toPushFailure(error, status);
+    return { ok: true };
+  },
+
   user_delete: async (cfg, op) => {
     const payload = op.payload as { id: string };
     const { supabaseRest } = await import("@/lib/supabase");

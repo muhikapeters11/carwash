@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { formatMoney } from "@/lib/utils";
 import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { Trash2 } from "lucide-react";
 
 export function ExpensesPage() {
   const expenses = useAppStore((s) => s.expenses);
   const addExpense = useAppStore((s) => s.addExpense);
+  const deleteExpense = useAppStore((s) => s.deleteExpense);
   const [desc, setDesc] = useState("");
   const [amount, setAmount] = useState("");
   const [cat, setCat] = useState("");
@@ -69,14 +71,27 @@ export function ExpensesPage() {
           <p className="p-6 text-[var(--text-muted)] text-sm">No expenses recorded</p>
         ) : (
           expenses.map((e) => (
-            <div key={e.id} className="px-5 py-3 flex justify-between items-center">
-              <div>
+            <div key={e.id} className="px-5 py-3 flex justify-between items-center gap-3">
+              <div className="min-w-0 flex-1">
                 <div className="font-medium text-[var(--text)]">{e.description}</div>
                 <div className="text-xs text-[var(--text-muted)]">
+                  {e.category ? `${e.category} · ` : ""}
                   {e.recorded_by_name} · {new Date(e.created_at).toLocaleString()}
                 </div>
               </div>
-              <div className="font-bold text-red-600">{formatMoney(e.amount)}</div>
+              <div className="font-bold text-red-600 shrink-0">{formatMoney(e.amount)}</div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Delete expense "${e.description}"?`)) {
+                    deleteExpense(e.id);
+                  }
+                }}
+                className="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 shrink-0"
+                title="Delete"
+              >
+                <Trash2 size={18} />
+              </button>
             </div>
           ))
         )}

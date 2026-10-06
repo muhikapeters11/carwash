@@ -35,14 +35,15 @@ const PROJECT_DEFAULTS = {
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
+/** Online dual-write: push pending ops to cloud quickly (silent) */
 function scheduleBackgroundSync() {
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
     const s = useSyncStore.getState();
-    if (s.isOnline && isCloudReady(s.cloud) && s.pendingOps.length > 0) {
+    if (s.isOnline && isCloudReady(s.cloud) && !s.isSyncing) {
       void s.syncNow({ silent: true });
     }
-  }, 500);
+  }, 120);
 }
 
 export const useSyncStore = create<SyncState>()(
@@ -76,8 +77,12 @@ export const useSyncStore = create<SyncState>()(
           retries: 0,
         };
         set({ pendingOps: [...get().pendingOps, op] });
+        // Always persist queue locally
+        void import("@/db/bridge").then(({ syncPendingOpsToDexie }) => {
+          void syncPendingOpsToDexie(get().pendingOps);
+        });
+        // Online → local already updated by caller; push to cloud immediately (silent)
         if (get().isOnline && isCloudReady(get().cloud)) {
-          // Online: push to cloud ASAP (debounced), then pull so other devices converge
           scheduleBackgroundSync();
         }
       },

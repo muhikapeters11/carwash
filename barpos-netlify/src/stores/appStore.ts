@@ -6,6 +6,7 @@ import type {
 } from "@/types";
 import { ALL_TABS } from "@/types";
 import { uid, generateSaleNumber, isInCurrentBusinessDay, isInPreviousBusinessDay } from "@/lib/utils";
+import { flushDexieSave } from "@/db/bridge";
 import { getDeviceId } from "@/lib/device";
 import { enqueueSync } from "@/stores/syncStore";
 import { writeSaleTransaction } from "@/db/writeSale";
@@ -66,6 +67,7 @@ interface AppState {
   setProducts: (p: Product[]) => void;
   addProduct: (p: Omit<Product, "id" | "created_at" | "updated_at">) => void;
   updateProduct: (id: string, patch: Partial<Product>) => void;
+  deleteProduct: (id: string) => void;
   /** Apply server/realtime product without re-queueing sync */
   mergeRemoteProduct: (product: Product) => void;
 
@@ -89,6 +91,7 @@ interface AppState {
   // Expenses
   expenses: Expense[];
   addExpense: (description: string, amount: number, category?: string) => void;
+  deleteExpense: (id: string) => void;
 
   // Suppliers
   suppliers: Supplier[];
@@ -194,6 +197,13 @@ export const useAppStore = create<AppState>()(
         });
         const prod = get().products.find((p) => p.id === id);
         if (prod) enqueueSync("product_upsert", prod);
+      },
+
+      deleteProduct: (id) => {
+        const prod = get().products.find((p) => p.id === id);
+        set({ products: get().products.filter((p) => p.id !== id) });
+        if (prod) get().logActivity("Product deleted", prod.name);
+        enqueueSync("product_delete", { id });
       },
 
       mergeRemoteProduct: (product) => {
@@ -376,6 +386,7 @@ export const useAppStore = create<AppState>()(
           console.warn("[Dexie] sale tx", e)
         );
         enqueueSync("sale", sale);
+        try { flushDexieSave(get()); } catch { /* ignore */ }
         void import("@/stores/syncStore").then(({ useSyncStore }) => {
           const st = useSyncStore.getState();
           if (st.isOnline) void st.syncNow({ silent: true });
@@ -472,6 +483,13 @@ export const useAppStore = create<AppState>()(
         set({ expenses: [exp, ...get().expenses] });
         get().logActivity("Expense recorded", description);
         enqueueSync("expense", exp);
+      },
+
+      deleteExpense: (id) => {
+        const exp = get().expenses.find((e) => e.id === id);
+        set({ expenses: get().expenses.filter((e) => e.id !== id) });
+        if (exp) get().logActivity("Expense deleted", exp.description);
+        enqueueSync("expense_delete", { id });
       },
 
       addSupplier: (s) => {
@@ -704,8 +722,10 @@ export const useAppStore = create<AppState>()(
         return {
           ...current,
           ...p,
-          products,
-          settings: { ...current.settings, till_number: "", device_mode: "till", ...(p.settings || {}) },
+          products: products.length ? products : current.products,
+          sales: (p.sales && p.sales.length) ? p.sales : (current.sales || []),
+          users: (p.users && p.users.length) ? p.users : (current.users || []),
+          settings: { ...current.settings, ...(p.settings || {}) },
         };
       },
       partialize: (s) => ({

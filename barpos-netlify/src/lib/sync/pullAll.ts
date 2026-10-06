@@ -100,34 +100,19 @@ export async function applyRemoteSnapshot(
 ) {
   const s = getState();
 
-  // CLOUD IS SOURCE OF TRUTH when it has rows — every device shows the same catalog/users
+  // Merge cloud + local (LWW). Never wipe newer local changes on refresh/sync.
+  // Other devices still get cloud rows; local pending wins until pushed.
   if (snap.products?.length) {
-    const normalized = snap.products.map((rp: any) => ({
-      units_per_pack: 1,
-      min_stock: 0,
-      is_active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      sku: "",
-      name: "",
-      category: "soft_drinks",
-      price: 0,
-      cost: 0,
-      stock_quantity: 0,
-      ...rp,
-    }));
-    setState({ products: normalized });
+    const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
+    setState({
+      products: mergeCatalogCloudFirst(s.products || [], snap.products),
+    });
   }
   if (snap.users?.length) {
-    const normalized = snap.users
-      .filter((u: any) => u?.id && u.is_active !== false)
-      .map((u: any) => ({
-        is_active: true,
-        allowed_tabs: [],
-        created_at: new Date().toISOString(),
-        ...u,
-      }));
-    if (normalized.length) setState({ users: normalized });
+    const { mergeUsersCloudFirst } = await import("@/lib/sync/merge");
+    setState({
+      users: mergeUsersCloudFirst(s.users || [], snap.users),
+    });
   }
   if (snap.sales?.length) {
     // Union by id so offline sales already pushed are included
@@ -148,8 +133,14 @@ export async function applyRemoteSnapshot(
       stockAudits: byIdMerge(s.stockAudits || [], snap.stockAudits),
     });
   }
-  if (snap.expenses?.length) {
-    setState({ expenses: byIdMerge(s.expenses || [], snap.expenses) });
+  if (Array.isArray(snap.expenses)) {
+    const remoteIds = new Set(snap.expenses.map((e: any) => e.id));
+    const localOnly = (s.expenses || []).filter((e: any) => {
+      if (remoteIds.has(e.id)) return false;
+      const age = Date.now() - new Date(e.created_at || 0).getTime();
+      return age < 2 * 24 * 60 * 60 * 1000; // offline-created not yet on cloud
+    });
+    setState({ expenses: [...snap.expenses, ...localOnly] });
   }
   if (snap.suppliers?.length) {
     setState({ suppliers: byIdMerge(s.suppliers || [], snap.suppliers) });
