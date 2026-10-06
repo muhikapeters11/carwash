@@ -12,7 +12,7 @@ import { dispatchPendingOp } from "@/lib/sync/handlers";
 import { mergeCatalog } from "@/lib/sync/merge";
 
 export type { PushResult, SyncErrorKind };
-export { mergeCatalog, mergeProductLWW, mergeUsers } from "@/lib/sync/merge";
+export { mergeCatalog, mergeCatalogCloudFirst, mergeProductLWW, mergeUsers, mergeUsersCloudFirst } from "@/lib/sync/merge";
 export { classifySyncError, humanSyncError, isRetryableError } from "@/lib/sync/errors";
 
 export async function pushPendingOp(

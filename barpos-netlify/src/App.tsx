@@ -67,7 +67,7 @@ function App() {
     let cancelled = false;
 
     (async () => {
-      // 1) LOCAL FIRST — app must work offline with zero network wait
+      // 1) Load local cache (offline backup)
       try {
         const snap = await bootstrapLocalDb();
         if (cancelled) return;
@@ -96,8 +96,6 @@ function App() {
       }
 
       if (cancelled) return;
-      // UI ready immediately from local data (works with no internet)
-      setDbReady(true);
 
       unsubApp = useAppStore.subscribe((state) => {
         scheduleDexieSave(state);
@@ -106,19 +104,44 @@ function App() {
         void syncPendingOpsToDexie(s.pendingOps);
       });
 
-      // 2) CLOUD in background only — never blocks login/sell
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        void (async () => {
-          try {
-            const sync = useSyncStore.getState();
-            if (!sync.cloud?.enabled) return;
-            // Only push pending queue + pull remote (no bulk re-upload every boot)
-            const result = await useSyncStore.getState().syncNow({ silent: true });
-            console.info("[boot cloud bg]", result.message);
-          } catch (e) {
-            console.warn("[boot cloud bg]", e);
+      // 2) ONLINE: sync FROM shared cloud DB first so every device sees the same data
+      //    OFFLINE: skip and use local only
+      const online =
+        typeof navigator !== "undefined" &&
+        navigator.onLine &&
+        useSyncStore.getState().cloud?.enabled;
+
+      if (online) {
+        try {
+          // Push any pending local changes, then pull full cloud state
+          const result = await Promise.race([
+            useSyncStore.getState().syncNow({ silent: true }),
+            new Promise<{ ok: boolean; message: string }>((resolve) =>
+              setTimeout(
+                () => resolve({ ok: false, message: "Cloud sync timed out — using local data" }),
+                10000
+              )
+            ),
+          ]);
+          console.info("[boot cloud]", result.message);
+        } catch (e) {
+          console.warn("[boot cloud]", e);
+        }
+      }
+
+      if (cancelled) return;
+      setDbReady(true);
+
+      // 3) Keep syncing in background while online
+      if (online) {
+        const id = window.setInterval(() => {
+          const s = useSyncStore.getState();
+          if (s.isOnline && s.cloud?.enabled && !s.isSyncing) {
+            void s.syncNow({ silent: true });
           }
-        })();
+        }, 20000);
+        // store on window for cleanup is optional; interval cleared on full reload
+        void id;
       }
     })();
 
@@ -151,12 +174,35 @@ function App() {
   }, [session, resetIdle]);
 
   // Always listen for focus/typing (including login)
+
+  // When device comes online or tab focuses — pull shared cloud DB
+  useEffect(() => {
+    const sync = () => {
+      const s = useSyncStore.getState();
+      if (s.isOnline && s.cloud?.enabled && !s.isSyncing) {
+        void s.syncNow({ silent: true });
+      }
+    };
+    const onOnline = () => {
+      useSyncStore.getState().setOnline(true);
+      sync();
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", () => useSyncStore.getState().setOnline(false));
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") sync();
+    });
+    return () => {
+      window.removeEventListener("online", onOnline);
+    };
+  }, []);
+
   if (!dbReady) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-slate-900 text-white">
         <div className="text-center">
           <div className="text-lg font-bold mb-2">Bar POS</div>
-          <div className="text-sm text-slate-400">Loading local database…</div>
+          <div className="text-sm text-slate-400">Loading shared data…</div>
         </div>
       </div>
     );

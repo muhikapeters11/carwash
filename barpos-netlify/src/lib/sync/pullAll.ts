@@ -100,14 +100,22 @@ export async function applyRemoteSnapshot(
 ) {
   const s = getState();
 
+  // Cloud is shared database: merge so all devices see the same data
   if (snap.products?.length) {
     setState({ products: mergeCatalog(s.products || [], snap.products) });
   }
   if (snap.users?.length) {
+    // Prefer cloud users (PINs shared across devices)
     setState({ users: mergeUsers(s.users || [], snap.users) });
   }
   if (snap.sales?.length) {
-    setState({ sales: byIdMerge(s.sales || [], snap.sales) });
+    // Union of all sales by id (same history everywhere)
+    const merged = byIdMerge(s.sales || [], snap.sales);
+    merged.sort(
+      (a, b) =>
+        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+    setState({ sales: merged });
   }
   if (snap.stockReceives?.length) {
     setState({
@@ -127,7 +135,12 @@ export async function applyRemoteSnapshot(
   }
   if (snap.settings && typeof snap.settings === "object") {
     setState({
-      settings: { ...s.settings, ...snap.settings, till_number: (snap.settings as any).till_number ?? s.settings?.till_number },
+      settings: {
+        ...s.settings,
+        ...snap.settings,
+        till_number:
+          (snap.settings as any).till_number ?? s.settings?.till_number ?? "",
+      },
     });
   }
 }
