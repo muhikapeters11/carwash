@@ -199,6 +199,9 @@ export interface AppSettings {
   theme: "light" | "dark";
   logo_url?: string;
   till_number: string;
+  /** Device-local preferred printer name (not synced to cloud) */
+  preferred_printer?: string;
+  auto_print_receipt?: boolean;
   /**
    * till = only this device sells / changes stock (recommended: one per bar)
    * monitor = view sales, reports, inventory; no stock-changing sales

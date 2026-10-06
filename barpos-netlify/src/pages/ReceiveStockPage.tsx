@@ -37,19 +37,22 @@ export function ReceiveStockPage() {
   const submit = () => {
     if (!selected || !qty || !totalCost) return;
     if (parseFloat(qty) <= 0 || parseFloat(totalCost) <= 0) return;
-    receiveStock(
-      selected,
-      parseInt(qty, 10),
-      Math.round(parseFloat(totalCost) * 100),
-      supplier || undefined,
-      receiptNo || undefined
-    );
-    setSelected(null);
-    setQty("");
-    setTotalCost("");
-    setSupplier("");
-    setReceiptNo("");
-    kb.close();
+    try {
+      receiveStock(
+        selected,
+        parseInt(qty, 10),
+        Math.round(parseFloat(totalCost) * 100),
+        supplier || undefined,
+        receiptNo || undefined
+      );
+    } finally {
+      setSelected(null);
+      setQty("");
+      setTotalCost("");
+      setSupplier("");
+      setReceiptNo("");
+      kb.close();
+    }
   };
 
   return (

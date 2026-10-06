@@ -144,7 +144,8 @@ const handlers: Record<string, Handler> = {
   },
 
   settings_upsert: async (cfg, op) => {
-    const s = op.payload as Record<string, unknown>;
+    const s = { ...(op.payload as Record<string, unknown>) };
+    // Keep logo_url (compressed data URL) in payload for multi-device
     return upsert(
       cfg,
       "app_settings",

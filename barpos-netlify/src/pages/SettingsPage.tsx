@@ -1,7 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { useSyncStore } from "@/stores/syncStore";
 import { isCloudReady } from "@/lib/supabase";
+import { compressImageDataUrl } from "@/lib/compressImage";
 
 export const APP_VERSION = "0.4.0";
 
@@ -28,6 +29,18 @@ export function SettingsPage() {
   const suppliers = useAppStore((s) => s.suppliers);
   const [form, setForm] = useState({ ...settings });
   const [msg, setMsg] = useState("");
+  const [printers, setPrinters] = useState<string[]>([]);
+  useEffect(() => {
+    // Chrome may expose printer list; otherwise user types name
+    const nav = navigator as Navigator & {
+      getPrinters?: () => Promise<{ name: string }[]>;
+    };
+    if (typeof nav.getPrinters === "function") {
+      nav.getPrinters().then((list) => {
+        setPrinters(list.map((p) => p.name).filter(Boolean));
+      }).catch(() => {});
+    }
+  }, []);
   const [confirmReset, setConfirmReset] = useState("");
   const logoRef = useRef<HTMLInputElement>(null);
   const cloud = useSyncStore((s) => s.cloud);
@@ -75,11 +88,30 @@ export function SettingsPage() {
     setConfirmReset("");
   };
 
+  const compressLogo = (dataUrl: string) => compressImageDataUrl(dataUrl, 256, 0.72);
+
   const onLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      setMsg("Logo too large (max 8MB). Choose a smaller image.");
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => setForm({ ...form, logo_url: reader.result as string });
+    reader.onload = async () => {
+      const raw = reader.result as string;
+      const logo_url = await compressLogo(raw);
+      const next = { ...form, logo_url };
+      setForm(next);
+      updateSettings(next); // save local + queue cloud settings_upsert
+      setMsg("Logo saved — syncing to cloud…");
+      const { useSyncStore } = await import("@/stores/syncStore");
+      const s = useSyncStore.getState();
+      if (s.isOnline) {
+        const r = await s.syncNow({ silent: false });
+        setMsg(r.ok ? "Logo synced to all devices" : `Logo saved locally. Sync: ${r.message}`);
+      }
+    };
     reader.readAsDataURL(file);
   };
 
@@ -209,7 +241,7 @@ export function SettingsPage() {
           className="w-full px-3 py-2.5 rounded-xl border border-[var(--border)]"
         />
         <div>
-          <label className="text-sm font-medium text-[var(--text)]">Theme</label>
+          <label className="text-sm font-medium text-[var(--text)]">Theme (this device only)</label>
           <div className="mt-1 flex gap-2">
             <button
               type="button"
@@ -283,6 +315,43 @@ export function SettingsPage() {
 
 
       <section className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] p-5 mb-4 space-y-3 max-w-lg">
+        
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-2">
+          <h2 className="font-bold text-[var(--text)]">Receipt printer (this device)</h2>
+          <p className="text-xs text-[var(--text-muted)]">
+            Web browsers usually show the system print dialog once. Choose your thermal printer there and enable “Remember”.
+            Preferred name is saved on this device only.
+          </p>
+          <label className="text-sm text-[var(--text)]">Preferred printer</label>
+          {printers.length > 0 ? (
+            <select
+              value={form.preferred_printer || ""}
+              onChange={(e) => setForm({ ...form, preferred_printer: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] text-[var(--input-text)]"
+            >
+              <option value="">System default</option>
+              {printers.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              placeholder="e.g. EPSON TM-T20 (optional)"
+              value={form.preferred_printer || ""}
+              onChange={(e) => setForm({ ...form, preferred_printer: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] text-[var(--input-text)]"
+            />
+          )}
+          <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+            <input
+              type="checkbox"
+              checked={form.auto_print_receipt !== false}
+              onChange={(e) => setForm({ ...form, auto_print_receipt: e.target.checked })}
+            />
+            Auto-print receipt after payment
+          </label>
+        </div>
+
         <h2 className="font-bold text-[var(--text)]">Cloud sync</h2>
         <p className="text-sm text-[var(--text-muted)]">
           Connect Supabase so tills share sales and stock. Works offline; syncs when online.

@@ -134,12 +134,16 @@ export async function applyRemoteSnapshot(
     setState({ suppliers: byIdMerge(s.suppliers || [], snap.suppliers) });
   }
   if (snap.settings && typeof snap.settings === "object") {
+    // Keep this device theme + printer preference
     setState({
       settings: {
         ...s.settings,
         ...snap.settings,
         till_number:
           (snap.settings as any).till_number ?? s.settings?.till_number ?? "",
+        theme: s.settings?.theme ?? "light",
+        preferred_printer: s.settings?.preferred_printer ?? "",
+        auto_print_receipt: s.settings?.auto_print_receipt !== false,
       },
     });
   }

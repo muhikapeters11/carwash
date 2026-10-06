@@ -3,6 +3,7 @@ import { useAppStore } from "@/stores/appStore";
 import { formatMoney, groupProductsByCategory } from "@/lib/utils";
 import type { Product, ProductCategory } from "@/types";
 import { Pencil } from "lucide-react";
+import { compressImageDataUrl } from "@/lib/compressImage";
 
 export function ProductsPage() {
   const products = useAppStore((s) => s.products);
@@ -48,8 +49,16 @@ export function ProductsPage() {
   const onImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      alert("Image too large (max 8MB)");
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
+    reader.onload = async () => {
+      const raw = reader.result as string;
+      const compressed = await compressImageDataUrl(raw, 320, 0.7);
+      setImage(compressed);
+    };
     reader.readAsDataURL(file);
   };
 

@@ -32,10 +32,13 @@ export function InventoryPage() {
 
   const submit = () => {
     if (!selected || newQty === "") return;
-    auditStock(selected, parseInt(newQty, 10), note || undefined);
-    setSelected(null);
-    setNewQty("");
-    setNote("");
+    try {
+      auditStock(selected, parseInt(newQty, 10), note || undefined);
+    } finally {
+      setSelected(null);
+      setNewQty("");
+      setNote("");
+    }
   };
 
   return (

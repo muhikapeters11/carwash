@@ -5,7 +5,6 @@ import type {
   AppSettings, SessionUser, CartItem, PaymentMethod, StockReceive, StockAudit, AppTab,
 } from "@/types";
 import { ALL_TABS } from "@/types";
-import { MOCK_PRODUCTS } from "@/data/mockProducts";
 import { uid, generateSaleNumber, isInCurrentBusinessDay, isInPreviousBusinessDay } from "@/lib/utils";
 import { getDeviceId } from "@/lib/device";
 import { enqueueSync } from "@/stores/syncStore";
@@ -46,6 +45,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   logo_url: undefined,
   till_number: "",
   device_mode: "till",
+  preferred_printer: "",
+  auto_print_receipt: true,
 };
 
 interface AppState {
@@ -122,7 +123,7 @@ export const useAppStore = create<AppState>()(
       session: null,
       users: [DEFAULT_ADMIN, DEFAULT_CASHIER],
       activeTab: "sell",
-      products: MOCK_PRODUCTS,
+      products: [], // empty until cloud/local data — avoids phone showing sample catalog
       cart: [],
       heldSales: [],
       sales: [],
@@ -588,7 +589,14 @@ export const useAppStore = create<AppState>()(
       updateSettings: (patch) => {
         const next = { ...get().settings, ...patch };
         set({ settings: next });
-        enqueueSync("settings_upsert", next);
+        // Theme + printer are per-device — do not push to cloud
+        const {
+          theme: _t,
+          preferred_printer: _p,
+          auto_print_receipt: _a,
+          ...cloudPayload
+        } = next as typeof next & Record<string, unknown>;
+        enqueueSync("settings_upsert", cloudPayload);
       },
 
       resetSystem: async () => {

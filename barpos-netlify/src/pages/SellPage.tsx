@@ -5,6 +5,7 @@ import type { PaymentMethod, Sale } from "@/types";
 import { Minus, Plus, Trash2, Pause, Eraser, X } from "lucide-react";
 import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
 import { ProductGrid } from "@/components/sell/ProductGrid";
+import { ThermalReceipt } from "@/components/ThermalReceipt";
 
 export function SellPage() {
   const cart = useAppStore((s) => s.cart);
@@ -290,95 +291,17 @@ export function SellPage() {
         </div>
       )}
 
-      {/* Receipt */}
+      {/* Receipt — auto-print then close */}
       {receiptSale && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:bg-white print:p-0">
-          <div className="bg-white text-black rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden print:shadow-none print:rounded-none">
-            <div className="px-5 py-3 border-b flex justify-between items-center print:hidden">
-              <h2 className="font-bold text-slate-900">Receipt</h2>
-              <button onClick={() => { setReceiptSale(null); kb.close(); }} className="p-2 hover:bg-slate-100 rounded-lg text-slate-700">
-                <X size={20} />
-              </button>
-            </div>
-            <div
-              className="thermal-receipt px-5 pt-6 pb-8 font-mono text-sm text-black bg-white"
-              style={{ width: settings.thermal_width_mm === 58 ? "58mm" : "80mm", maxWidth: "100%", margin: "0 auto" }}
-            >
-              <div className="text-center font-bold text-base uppercase tracking-wide mb-1">
-                {settings.business_name || "My Bar"}
-              </div>
-              {settings.till_number ? (
-                <div className="text-center text-sm font-bold italic mb-1">
-                  Till No: {settings.till_number}
-                </div>
-              ) : null}
-              <div className="text-center text-xs mb-1">
-                {new Date(receiptSale.created_at).toLocaleString()}
-              </div>
-              <div className="text-center text-xs mb-1">
-                Served by: {receiptSale.cashier_name}
-              </div>
-              <div className="border-t border-dashed border-black my-3" />
-              {receiptSale.items.length > 0 ? (
-                receiptSale.items.map((i) => (
-                  <div key={i.id} className="flex justify-between text-xs mb-1">
-                    <span className="pr-2">{i.quantity}x {i.product_name}</span>
-                    <span className="whitespace-nowrap">{formatMoney(i.line_total)}</span>
-                  </div>
-                ))
-              ) : (
-                <div className="text-xs text-center mb-1">Credit payment</div>
-              )}
-              <div className="border-t border-dashed border-black my-3" />
-              <div className="flex justify-between font-bold text-sm">
-                <span>TOTAL</span>
-                <span>{formatMoney(receiptSale.total)}</span>
-              </div>
-              <div className="flex justify-between text-xs capitalize mt-1">
-                <span>{receiptSale.payment_method}</span>
-                <span>
-                  {receiptSale.payment_method === "credit"
-                    ? receiptSale.credit_customer_name
-                    : formatMoney(receiptSale.amount_paid)}
-                </span>
-              </div>
-              {receiptSale.change_given > 0 && (
-                <div className="flex justify-between text-xs mt-1">
-                  <span>Change</span>
-                  <span>{formatMoney(receiptSale.change_given)}</span>
-                </div>
-              )}
-              <div className="text-center text-xs mt-10 pt-4">
-                {settings.receipt_footer || "Thank you for your business!"}
-              </div>
-            </div>
-            <div className="px-5 pb-5 flex gap-2 print:hidden">
-              <button
-                onClick={() => {
-                  const prev = document.title;
-                  document.title = " ";
-                  const close = () => {
-                    document.title = prev;
-                    setReceiptSale(null);
-                  };
-                  window.addEventListener("afterprint", close, { once: true });
-                  window.print();
-                  // Fallback if afterprint does not fire (some WebViews)
-                  setTimeout(close, 800);
-                }}
-                className="flex-1 py-3 rounded-xl bg-slate-900 text-white font-bold"
-              >
-                Print
-              </button>
-              <button
-                onClick={() => setReceiptSale(null)}
-                className="flex-1 py-3 rounded-xl border-2 border-slate-300 font-semibold text-slate-800"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
+        <ThermalReceipt
+          sale={receiptSale}
+          settings={settings}
+          onClose={() => {
+            setReceiptSale(null);
+            kb.close();
+          }}
+          autoPrint={settings.auto_print_receipt !== false}
+        />
       )}
 
       {/* Held sales */}

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { Sale } from "@/types";
 import type { AppSettings } from "@/types";
 import { formatMoney } from "@/lib/utils";
@@ -7,10 +8,18 @@ interface Props {
   settings: AppSettings;
   onClose: () => void;
   title?: string;
+  /** Auto-trigger print when opened (after payment) */
+  autoPrint?: boolean;
 }
 
-/** 58mm / 80mm thermal — edge-aligned print, order no. YYYYMMDD### */
-export function ThermalReceipt({ sale, settings, onClose, title }: Props) {
+/** 58mm / 80mm thermal receipt — browsers may still show system print dialog once */
+export function ThermalReceipt({
+  sale,
+  settings,
+  onClose,
+  title,
+  autoPrint = true,
+}: Props) {
   const width = settings.thermal_width_mm === 58 ? 58 : 80;
 
   const doPrint = () => {
@@ -22,8 +31,16 @@ export function ThermalReceipt({ sale, settings, onClose, title }: Props) {
     };
     window.addEventListener("afterprint", close, { once: true });
     window.print();
-    setTimeout(close, 800);
+    // Fallback close if afterprint doesn't fire (some mobile browsers)
+    setTimeout(close, 1200);
   };
+
+  useEffect(() => {
+    if (!autoPrint) return;
+    const t = setTimeout(() => doPrint(), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPrint, sale.id]);
 
   return (
     <>
@@ -41,7 +58,6 @@ export function ThermalReceipt({ sale, settings, onClose, title }: Props) {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            right: auto !important;
             width: ${width}mm !important;
             max-width: ${width}mm !important;
             margin: 0 !important;

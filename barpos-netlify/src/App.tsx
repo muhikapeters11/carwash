@@ -67,6 +67,31 @@ function App() {
     let cancelled = false;
 
     (async () => {
+      // Wait for Zustand localStorage rehydration — otherwise cloud data can be overwritten by defaults
+      try {
+        const persister = (useAppStore as unknown as {
+          persist?: {
+            hasHydrated?: () => boolean;
+            onFinishHydration?: (cb: () => void) => () => void;
+            rehydrate?: () => Promise<void>;
+          };
+        }).persist;
+        if (persister?.rehydrate) {
+          await persister.rehydrate();
+        } else if (persister && !persister.hasHydrated?.()) {
+          await new Promise<void>((resolve) => {
+            const done = () => resolve();
+            const unsub = persister.onFinishHydration?.(done);
+            setTimeout(() => {
+              unsub?.();
+              resolve();
+            }, 1500);
+          });
+        }
+      } catch (e) {
+        console.warn("[hydrate]", e);
+      }
+
       // 1) Load local cache (offline backup)
       try {
         const snap = await bootstrapLocalDb();
@@ -119,7 +144,7 @@ function App() {
             new Promise<{ ok: boolean; message: string }>((resolve) =>
               setTimeout(
                 () => resolve({ ok: false, message: "Cloud sync timed out — using local data" }),
-                10000
+                15000
               )
             ),
           ]);
