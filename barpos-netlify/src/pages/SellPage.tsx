@@ -214,7 +214,11 @@ export function SellPage() {
               <input
                 readOnly
                 value={creditName}
-                onClick={() => kb.openFor(creditName, setCreditName, "alpha")}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(creditName, setCreditName, "alpha", e.currentTarget);
+                }}
                 placeholder="Customer name"
                 className="mt-1 w-full px-3 py-3 rounded-xl border border-[var(--border)] cursor-pointer text-[var(--text)]"
               />

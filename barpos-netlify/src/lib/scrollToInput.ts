@@ -1,6 +1,6 @@
 /** Keep the active field visible above the virtual keyboard / viewport */
 
-const KEYBOARD_RESERVE_PX = 380; // approx on-screen keyboard height
+const KEYBOARD_RESERVE_PX = 420; // approx on-screen keyboard height
 
 export function scrollFieldIntoView(el: HTMLElement | null | undefined) {
   if (!el || typeof el.scrollIntoView !== "function") return;

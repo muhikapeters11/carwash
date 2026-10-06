@@ -103,22 +103,11 @@ export async function applyRemoteSnapshot(
   // Merge cloud + local (LWW). Never wipe newer local changes on refresh/sync.
   // Other devices still get cloud rows; local pending wins until pushed.
   if (snap.products?.length) {
-    // Cloud catalog is the shared source of truth after push
-    const normalized = snap.products.map((rp: any) => ({
-      units_per_pack: 1,
-      min_stock: 0,
-      is_active: true,
-      created_at: rp.created_at || new Date().toISOString(),
-      updated_at: rp.updated_at || new Date().toISOString(),
-      sku: "",
-      name: "",
-      category: "soft_drinks",
-      price: 0,
-      cost: 0,
-      stock_quantity: 0,
-      ...rp,
-    }));
-    setState({ products: normalized });
+    // Merge LWW so a local stock receive is not wiped by an older cloud row
+    const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
+    setState({
+      products: mergeCatalogCloudFirst(s.products || [], snap.products),
+    });
   }
   if (snap.users?.length) {
     const normalized = snap.users

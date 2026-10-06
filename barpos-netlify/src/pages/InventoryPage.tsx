@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { groupProductsByCategory, formatMoney, cn } from "@/lib/utils";
 import { X } from "lucide-react";
+import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
 
 export function InventoryPage() {
   const products = useAppStore((s) => s.products);
@@ -15,6 +16,7 @@ export function InventoryPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [newQty, setNewQty] = useState("");
   const [note, setNote] = useState("");
+  const kb = useVirtualKeyboard();
 
   const product = products.find((p) => p.id === selected);
 
@@ -38,6 +40,7 @@ export function InventoryPage() {
       setSelected(null);
       setNewQty("");
       setNote("");
+      kb.close();
     }
   };
 
@@ -157,19 +160,27 @@ export function InventoryPage() {
             <div>
               <label className="text-sm font-medium text-[var(--text)]">New quantity</label>
               <input
-                type="number"
+                readOnly
                 value={newQty}
-                onChange={(e) => setNewQty(e.target.value)}
-                className="mt-1 w-full px-3 py-2.5 rounded-xl border border-[var(--border)] outline-none focus:border-amber-400"
-                autoFocus
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(newQty, setNewQty, "numeric", e.currentTarget);
+                }}
+                className="mt-1 w-full px-3 py-3 rounded-xl border border-[var(--border)] cursor-pointer text-xl font-bold"
               />
             </div>
             <div>
               <label className="text-sm font-medium text-[var(--text)]">Note (optional)</label>
               <input
+                readOnly
                 value={note}
-                onChange={(e) => setNote(e.target.value)}
-                className="mt-1 w-full px-3 py-2.5 rounded-xl border border-[var(--border)] outline-none"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(note, setNote, "alpha", e.currentTarget);
+                }}
+                className="mt-1 w-full px-3 py-3 rounded-xl border border-[var(--border)] cursor-pointer"
               />
             </div>
             <button
@@ -181,6 +192,7 @@ export function InventoryPage() {
           </div>
         </div>
       )}
+      {kb.Keyboard}
     </div>
   );
 }

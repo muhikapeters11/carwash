@@ -598,6 +598,11 @@ export const useAppStore = create<AppState>()(
         enqueueSync("stock_receive", rec);
         const updatedProd = get().products.find((x) => x.id === productId);
         if (updatedProd) enqueueSync("product_upsert", updatedProd);
+        try { flushDexieSave(get()); } catch { /* ignore */ }
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const st = useSyncStore.getState();
+          if (st.isOnline) void st.syncNow({ silent: true });
+        });
       },
 
       auditStock: (productId, newQty, note) => {
@@ -745,9 +750,21 @@ export const useAppStore = create<AppState>()(
           cloudMsg = e instanceof Error ? e.message : "Cloud wipe failed";
         }
 
+        // 5) Wipe persisted browser storage so refresh cannot restore old tabs
+        try {
+          localStorage.removeItem("barpos-v2");
+          localStorage.removeItem("barpos-sync-v1");
+        } catch { /* ignore */ }
+
+        // 6) Clear Dexie settings row
+        try {
+          const { db } = await import("@/db/schema");
+          await db.settings.clear();
+        } catch { /* ignore */ }
+
         return {
           ok: true,
-          message: `Local data cleared (products, sales, users). ${cloudMsg} Login PIN 1234.`,
+          message: `Everything cleared (all tabs + cloud). ${cloudMsg} Login PIN 1234.`,
         };
       },
 
