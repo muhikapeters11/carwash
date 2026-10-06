@@ -33,6 +33,18 @@ const DEFAULT_CASHIER: User = {
   created_at: new Date().toISOString(),
 };
 
+function ensureDefaultUsers(users: User[] | undefined): User[] {
+  const current = Array.isArray(users) ? users.filter((u) => u && u.is_active !== false) : [];
+  const byId = new Map(current.map((u) => [u.id, u]));
+
+  // Keep the built-in recovery accounts available after local/Dexie/cloud hydration.
+  // Existing accounts with these IDs remain authoritative so custom PIN changes persist.
+  if (!byId.has(DEFAULT_ADMIN.id)) byId.set(DEFAULT_ADMIN.id, DEFAULT_ADMIN);
+  if (!byId.has(DEFAULT_CASHIER.id)) byId.set(DEFAULT_CASHIER.id, DEFAULT_CASHIER);
+
+  return Array.from(byId.values());
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   business_name: "My Bar",
   business_phone: "",
@@ -125,7 +137,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       session: null,
-      users: [DEFAULT_ADMIN, DEFAULT_CASHIER],
+      users: ensureDefaultUsers([DEFAULT_ADMIN, DEFAULT_CASHIER]),
       activeTab: "sell",
       products: [], // empty until cloud/local data — avoids phone showing sample catalog
       cart: [],
@@ -141,8 +153,11 @@ export const useAppStore = create<AppState>()(
       settings: DEFAULT_SETTINGS,
 
       login: (pin) => {
-        const user = get().users.find(
-          (u) => u.pin === pin && u.is_active
+        const normalizedPin = String(pin ?? "").replace(/\D/g, "").slice(0, 8);
+        const users = ensureDefaultUsers(get().users);
+        if (users.length !== get().users.length) set({ users });
+        const user = users.find(
+          (u) => u.pin === normalizedPin && u.is_active
         );
         if (!user) return false;
         const session: SessionUser = {

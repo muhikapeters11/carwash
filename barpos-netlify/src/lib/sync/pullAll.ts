@@ -173,7 +173,41 @@ export async function applyRemoteSnapshot(
         created_at: u.created_at || new Date().toISOString(),
         ...u,
       }));
-    setState({ users: normalized });
+
+    // Never remove the built-in recovery accounts merely because the cloud
+    // database was created before those accounts existed.
+    const byId = new Map(normalized.map((u: any) => [u.id, u]));
+    const localUsers = Array.isArray(s.users) ? s.users : [];
+    for (const fallback of localUsers.filter((u: any) =>
+      (u?.id === "u-admin" || u?.id === "u-cashier") && u.is_active !== false
+    )) {
+      if (!byId.has(fallback.id)) byId.set(fallback.id, fallback);
+    }
+    if (!byId.has("u-admin")) {
+      byId.set("u-admin", {
+        id: "u-admin",
+        full_name: "System Admin",
+        username: "admin",
+        role: "admin",
+        pin: "1234",
+        allowed_tabs: [],
+        is_active: true,
+        created_at: new Date().toISOString(),
+      });
+    }
+    if (!byId.has("u-cashier")) {
+      byId.set("u-cashier", {
+        id: "u-cashier",
+        full_name: "John Cashier",
+        username: "cashier",
+        role: "cashier",
+        pin: "0000",
+        allowed_tabs: ["dashboard", "sell", "inventory", "credits"],
+        is_active: true,
+        created_at: new Date().toISOString(),
+      });
+    }
+    setState({ users: Array.from(byId.values()) });
   }
   if (Array.isArray(snap.sales)) {
     const sales = [...snap.sales].sort(

@@ -104,7 +104,19 @@ function App() {
             credits: snap.credits || [],
             expenses: snap.expenses || [],
             suppliers: snap.suppliers || [],
-            users: snap.users?.length ? snap.users : useAppStore.getState().users,
+            users: snap.users?.length
+              ? (() => {
+                  const current = snap.users.filter((u) => u && u.is_active !== false);
+                  const byId = new Map(current.map((u) => [u.id, u]));
+                  const existing = useAppStore.getState().users;
+                  for (const fallback of existing.filter((u) =>
+                    (u.id === "u-admin" || u.id === "u-cashier") && u.is_active
+                  )) {
+                    if (!byId.has(fallback.id)) byId.set(fallback.id, fallback);
+                  }
+                  return Array.from(byId.values());
+                })()
+              : useAppStore.getState().users,
             stockReceives: snap.stockReceives || [],
             stockAudits: snap.stockAudits || [],
             activityLog: snap.activityLog || [],
