@@ -1,9 +1,12 @@
+# The app source (src/, public/) lives in barpos-netlify/, so build from there.
 [build]
+  base = "barpos-netlify"
   command = "npm run build"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
+  NPM_FLAGS = "--legacy-peer-deps"
 
 [[redirects]]
   from = "/*"
