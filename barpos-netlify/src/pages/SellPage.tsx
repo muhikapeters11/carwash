@@ -76,6 +76,7 @@ export function SellPage() {
         <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between text-[var(--text)]">
           <span className="font-bold text-[var(--text)]">Current Sale</span>
           <div className="flex gap-1" />
+
         </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -96,7 +97,7 @@ export function SellPage() {
               Clear
             </button>
           </div>
-      </div>
+        </div>
 
       {/* Payment modal */}
       {payMethod && (
