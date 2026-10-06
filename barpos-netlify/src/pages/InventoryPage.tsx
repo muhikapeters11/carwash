@@ -40,7 +40,6 @@ export function InventoryPage() {
       setSelected(null);
       setNewQty("");
       setNote("");
-      kb.close();
     }
   };
 
@@ -162,12 +161,9 @@ export function InventoryPage() {
               <input
                 readOnly
                 value={newQty}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  kb.openFor(newQty, setNewQty, "numeric", e.currentTarget);
-                }}
-                className="mt-1 w-full px-3 py-3 rounded-xl border border-[var(--border)] cursor-pointer text-xl font-bold"
+                onClick={(e) => kb.openFor(newQty, setNewQty, "numeric", e.currentTarget)}
+                placeholder="0"
+                className="mt-1 w-full px-3 py-2.5 rounded-xl border border-[var(--border)] outline-none focus:border-amber-400 cursor-pointer text-xl font-bold"
               />
             </div>
             <div>
@@ -175,12 +171,9 @@ export function InventoryPage() {
               <input
                 readOnly
                 value={note}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  kb.openFor(note, setNote, "alpha", e.currentTarget);
-                }}
-                className="mt-1 w-full px-3 py-3 rounded-xl border border-[var(--border)] cursor-pointer"
+                onClick={(e) => kb.openFor(note, setNote, "alpha", e.currentTarget)}
+                placeholder="Optional"
+                className="mt-1 w-full px-3 py-2.5 rounded-xl border border-[var(--border)] outline-none cursor-pointer"
               />
             </div>
             <button

@@ -32,7 +32,7 @@ export function SuppliersPage() {
           <input
             readOnly
             value={name}
-            onClick={() => kb.openFor(name, setName, "alpha")}
+            onClick={(e) => kb.openFor(name, setName, "alpha", e.currentTarget)}
             placeholder="Supplier name"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
             required
@@ -43,7 +43,7 @@ export function SuppliersPage() {
           <input
             readOnly
             value={phone}
-            onClick={() => kb.openFor(phone, setPhone, "numeric")}
+            onClick={(e) => kb.openFor(phone, setPhone, "numeric", e.currentTarget)}
             placeholder="Optional"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
           />
@@ -53,7 +53,7 @@ export function SuppliersPage() {
           <input
             readOnly
             value={email}
-            onClick={() => kb.openFor(email, setEmail, "alpha")}
+            onClick={(e) => kb.openFor(email, setEmail, "alpha", e.currentTarget)}
             placeholder="Optional"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
           />

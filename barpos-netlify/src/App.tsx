@@ -165,14 +165,36 @@ function App() {
       if (cancelled) return;
       setDbReady(true);
 
-      // 3) Re-sync periodically + when tab visible
+      // 3) Keep every device aligned with the latest successful cloud sync.
+      // Polling is intentionally used in addition to product realtime because
+      // sales, stock receives, audits, credits, expenses, suppliers and users
+      // must all converge across separate computers.
+      let sharedSyncTimer: number | undefined;
       if (canCloud) {
-        window.setInterval(() => {
+        sharedSyncTimer = window.setInterval(() => {
           const s = useSyncStore.getState();
           if (navigator.onLine && !s.isSyncing) {
             void s.syncNow({ silent: true });
           }
-        }, 15000);
+        }, 5000);
+
+        const syncWhenVisible = () => {
+          if (document.visibilityState === "visible" && navigator.onLine) {
+            const s = useSyncStore.getState();
+            if (!s.isSyncing) void s.syncNow({ silent: true });
+          }
+        };
+        document.addEventListener("visibilitychange", syncWhenVisible);
+        window.addEventListener("focus", syncWhenVisible);
+        window.addEventListener("pageshow", syncWhenVisible);
+
+        // Store cleanup on the effect scope.
+        (window as any).__barposSharedSyncCleanup = () => {
+          if (sharedSyncTimer) window.clearInterval(sharedSyncTimer);
+          document.removeEventListener("visibilitychange", syncWhenVisible);
+          window.removeEventListener("focus", syncWhenVisible);
+          window.removeEventListener("pageshow", syncWhenVisible);
+        };
       }
     })();
 
@@ -180,6 +202,8 @@ function App() {
       cancelled = true;
       unsubApp?.();
       unsubSync?.();
+      (window as any).__barposSharedSyncCleanup?.();
+      delete (window as any).__barposSharedSyncCleanup;
     };
   }, []);
 

@@ -156,12 +156,8 @@ export function CreditsPage() {
               <input
                 readOnly
                 value={amount}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  kb.openFor(amount, setAmount, "numeric", e.currentTarget);
-                }}
-                className="mt-1 w-full px-3 py-3 rounded-xl cursor-pointer text-xl font-bold"
+                onClick={(e) => kb.openFor(amount, setAmount, "numeric", e.currentTarget)}
+                className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
               />
             </div>
             <div className="flex gap-2">

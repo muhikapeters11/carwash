@@ -35,7 +35,7 @@ export function ExpensesPage() {
           <input
             readOnly
             value={desc}
-            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); kb.openFor(desc, setDesc, "alpha", e.currentTarget); }}
+            onClick={(e) => kb.openFor(desc, setDesc, "alpha", e.currentTarget)}
             placeholder="What was paid for"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
             required
@@ -46,7 +46,7 @@ export function ExpensesPage() {
           <input
             readOnly
             value={amount}
-            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); kb.openFor(amount, setAmount, "numeric", e.currentTarget); }}
+            onClick={(e) => kb.openFor(amount, setAmount, "numeric", e.currentTarget)}
             placeholder="0.00"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
             required
@@ -57,7 +57,7 @@ export function ExpensesPage() {
           <input
             readOnly
             value={cat}
-            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); kb.openFor(cat, setCat, "alpha", e.currentTarget); }}
+            onClick={(e) => kb.openFor(cat, setCat, "alpha", e.currentTarget)}
             placeholder="e.g. Utilities"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
           />

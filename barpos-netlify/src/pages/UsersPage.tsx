@@ -164,7 +164,7 @@ export function UsersPage() {
               <input
                 readOnly
                 value={fullName}
-                onClick={() => kb.openFor(fullName, setFullName, "alpha")}
+                onClick={(e) => kb.openFor(fullName, setFullName, "alpha", e.currentTarget)}
                 className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
                 required
               />
@@ -174,7 +174,7 @@ export function UsersPage() {
               <input
                 readOnly
                 value={username}
-                onClick={() => kb.openFor(username, setUsername, "alpha")}
+                onClick={(e) => kb.openFor(username, setUsername, "alpha", e.currentTarget)}
                 className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
               />
             </div>
@@ -183,7 +183,7 @@ export function UsersPage() {
               <input
                 readOnly
                 value={pin}
-                onClick={() => kb.openFor(pin, setPin, "numeric")}
+                onClick={(e) => kb.openFor(pin, setPin, "numeric", e.currentTarget)}
                 className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
                 required
               />

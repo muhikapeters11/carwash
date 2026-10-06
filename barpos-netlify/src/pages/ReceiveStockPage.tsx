@@ -175,11 +175,7 @@ export function ReceiveStockPage() {
               <input
                 readOnly
                 value={qty}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  kb.openFor(qty, setQty, "numeric", e.currentTarget);
-                }}
+                onClick={(e) => kb.openFor(qty, setQty, "numeric", e.currentTarget)}
                 placeholder="0"
                 className="mt-1 w-full px-3 py-3 rounded-xl cursor-pointer text-xl font-bold"
               />
@@ -190,11 +186,7 @@ export function ReceiveStockPage() {
               <input
                 readOnly
                 value={totalCost}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  kb.openFor(totalCost, setTotalCost, "numeric", e.currentTarget);
-                }}
+                onClick={(e) => kb.openFor(totalCost, setTotalCost, "numeric", e.currentTarget)}
                 placeholder="0.00"
                 className="mt-1 w-full px-3 py-3 rounded-xl cursor-pointer text-xl font-bold"
               />
@@ -221,11 +213,7 @@ export function ReceiveStockPage() {
               <input
                 readOnly
                 value={receiptNo}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  kb.openFor(receiptNo, setReceiptNo, "alpha", e.currentTarget);
-                }}
+                onClick={(e) => kb.openFor(receiptNo, setReceiptNo, "alpha", e.currentTarget)}
                 placeholder="Optional"
                 className="mt-1 w-full px-3 py-3 rounded-xl cursor-pointer"
               />
