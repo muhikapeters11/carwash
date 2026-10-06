@@ -129,22 +129,29 @@ function App() {
         void syncPendingOpsToDexie(s.pendingOps);
       });
 
-      // 2) ONLINE: sync FROM shared cloud DB first so every device sees the same data
-      //    OFFLINE: skip and use local only
-      const online =
-        typeof navigator !== "undefined" &&
-        navigator.onLine &&
-        useSyncStore.getState().cloud?.enabled;
+      // 2) ALWAYS load from cloud first when the device has internet
+      const online = typeof navigator !== "undefined" && navigator.onLine;
+      const cloud = useSyncStore.getState().cloud;
+      const canCloud =
+        online &&
+        !!(cloud?.supabase_url && cloud?.supabase_anon_key);
 
-      if (online) {
+      if (canCloud) {
+        // Ensure enabled so sync runs
+        if (!cloud.enabled) {
+          useSyncStore.getState().setCloud({ enabled: true });
+        }
         try {
-          // Push any pending local changes, then pull full cloud state
           const result = await Promise.race([
             useSyncStore.getState().syncNow({ silent: true }),
             new Promise<{ ok: boolean; message: string }>((resolve) =>
               setTimeout(
-                () => resolve({ ok: false, message: "Cloud sync timed out — using local data" }),
-                15000
+                () =>
+                  resolve({
+                    ok: false,
+                    message: "Cloud sync timed out — using last local copy",
+                  }),
+                20000
               )
             ),
           ]);
@@ -157,16 +164,14 @@ function App() {
       if (cancelled) return;
       setDbReady(true);
 
-      // 3) Keep syncing in background while online
-      if (online) {
-        const id = window.setInterval(() => {
+      // 3) Re-sync periodically + when tab visible
+      if (canCloud) {
+        window.setInterval(() => {
           const s = useSyncStore.getState();
-          if (s.isOnline && s.cloud?.enabled && !s.isSyncing) {
+          if (navigator.onLine && !s.isSyncing) {
             void s.syncNow({ silent: true });
           }
-        }, 20000);
-        // store on window for cleanup is optional; interval cleared on full reload
-        void id;
+        }, 15000);
       }
     })();
 

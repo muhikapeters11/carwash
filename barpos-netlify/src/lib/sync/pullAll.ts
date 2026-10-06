@@ -100,16 +100,37 @@ export async function applyRemoteSnapshot(
 ) {
   const s = getState();
 
-  // Cloud is shared database: merge so all devices see the same data
+  // CLOUD IS SOURCE OF TRUTH when it has rows — every device shows the same catalog/users
   if (snap.products?.length) {
-    setState({ products: mergeCatalog(s.products || [], snap.products) });
+    const normalized = snap.products.map((rp: any) => ({
+      units_per_pack: 1,
+      min_stock: 0,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      sku: "",
+      name: "",
+      category: "soft_drinks",
+      price: 0,
+      cost: 0,
+      stock_quantity: 0,
+      ...rp,
+    }));
+    setState({ products: normalized });
   }
   if (snap.users?.length) {
-    // Prefer cloud users (PINs shared across devices)
-    setState({ users: mergeUsers(s.users || [], snap.users) });
+    const normalized = snap.users
+      .filter((u: any) => u?.id && u.is_active !== false)
+      .map((u: any) => ({
+        is_active: true,
+        allowed_tabs: [],
+        created_at: new Date().toISOString(),
+        ...u,
+      }));
+    if (normalized.length) setState({ users: normalized });
   }
   if (snap.sales?.length) {
-    // Union of all sales by id (same history everywhere)
+    // Union by id so offline sales already pushed are included
     const merged = byIdMerge(s.sales || [], snap.sales);
     merged.sort(
       (a, b) =>

@@ -300,7 +300,7 @@ export function SellPage() {
             setReceiptSale(null);
             kb.close();
           }}
-          autoPrint={settings.auto_print_receipt !== false}
+          autoPrint={false}
         />
       )}
 

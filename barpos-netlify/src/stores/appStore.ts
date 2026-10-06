@@ -46,7 +46,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   till_number: "",
   device_mode: "till",
   preferred_printer: "",
-  auto_print_receipt: true,
+  auto_print_receipt: false,
 };
 
 interface AppState {
@@ -376,6 +376,14 @@ export const useAppStore = create<AppState>()(
           console.warn("[Dexie] sale tx", e)
         );
         enqueueSync("sale", sale);
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const st = useSyncStore.getState();
+          if (st.isOnline) void st.syncNow({ silent: true });
+        });
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const st = useSyncStore.getState();
+          if (st.isOnline) void st.syncNow({ silent: true });
+        });
         // Push stock deductions to cloud so all devices see new quantities
         for (const p of newProducts) {
           const sold = sale.items.some((i) => i.product_id === p.id);

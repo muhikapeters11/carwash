@@ -18,7 +18,7 @@ export function ThermalReceipt({
   settings,
   onClose,
   title,
-  autoPrint = true,
+  autoPrint = false,
 }: Props) {
   const width = settings.thermal_width_mm === 58 ? 58 : 80;
 
