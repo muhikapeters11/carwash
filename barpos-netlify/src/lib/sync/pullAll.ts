@@ -103,16 +103,33 @@ export async function applyRemoteSnapshot(
   // Merge cloud + local (LWW). Never wipe newer local changes on refresh/sync.
   // Other devices still get cloud rows; local pending wins until pushed.
   if (snap.products?.length) {
-    const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
-    setState({
-      products: mergeCatalogCloudFirst(s.products || [], snap.products),
-    });
+    // Cloud catalog is the shared source of truth after push
+    const normalized = snap.products.map((rp: any) => ({
+      units_per_pack: 1,
+      min_stock: 0,
+      is_active: true,
+      created_at: rp.created_at || new Date().toISOString(),
+      updated_at: rp.updated_at || new Date().toISOString(),
+      sku: "",
+      name: "",
+      category: "soft_drinks",
+      price: 0,
+      cost: 0,
+      stock_quantity: 0,
+      ...rp,
+    }));
+    setState({ products: normalized });
   }
   if (snap.users?.length) {
-    const { mergeUsersCloudFirst } = await import("@/lib/sync/merge");
-    setState({
-      users: mergeUsersCloudFirst(s.users || [], snap.users),
-    });
+    const normalized = snap.users
+      .filter((u: any) => u?.id && u.is_active !== false)
+      .map((u: any) => ({
+        is_active: true,
+        allowed_tabs: [],
+        created_at: u.created_at || new Date().toISOString(),
+        ...u,
+      }));
+    if (normalized.length) setState({ users: normalized });
   }
   if (snap.sales?.length) {
     // Union by id so offline sales already pushed are included

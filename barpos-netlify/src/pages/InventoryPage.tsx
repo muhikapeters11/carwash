@@ -96,72 +96,48 @@ export function InventoryPage() {
       )}
 
       {groups.map((g) => (
-        <div key={g.category} className="mb-5">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+        <div key={g.category} className="mb-6">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-muted)] mb-3">
             {g.label}
           </h2>
-          <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[var(--border)] bg-[var(--bg-muted)] text-left text-xs text-[var(--text-muted)]">
-                  <th className="px-3 py-2 font-semibold">SKU</th>
-                  <th className="px-3 py-2 font-semibold">Product</th>
-                  <th className="px-3 py-2 font-semibold text-right">Qty</th>
-                  {isAdmin && (
-                    <>
-                      <th className="px-3 py-2 font-semibold text-right">Unit cost</th>
-                      <th className="px-3 py-2 font-semibold text-right">Sell price</th>
-                      <th className="px-3 py-2 font-semibold text-right">Stock value (cost)</th>
-                      <th className="px-3 py-2 font-semibold text-right">Stock value (sell)</th>
-                    </>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3">
+            {g.items.map((p) => {
+              const out = p.stock_quantity <= 0;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setSelected(p.id);
+                    setNewQty(String(p.stock_quantity));
+                  }}
+                  className={cn(
+                    "rounded-2xl border-2 bg-[var(--bg-card)] overflow-hidden text-left touch-manipulation active:scale-[0.98] transition min-h-[140px]",
+                    out ? "border-red-300" : "border-[var(--border)] hover:border-amber-400"
                   )}
-                </tr>
-              </thead>
-              <tbody>
-                {g.items.map((p) => {
-                  const out = p.stock_quantity <= 0;
-                  return (
-                    <tr
-                      key={p.id}
-                      onClick={() => {
-                        setSelected(p.id);
-                        setNewQty(String(p.stock_quantity));
-                      }}
-                      className="border-b border-[var(--border)] last:border-0 cursor-pointer hover:bg-amber-50 dark:hover:bg-slate-700/50"
-                    >
-                      <td className="px-3 py-2.5 font-mono text-xs text-[var(--text-muted)]">
-                        {p.sku}
-                      </td>
-                      <td className="px-3 py-2.5 font-medium text-[var(--text)]">{p.name}</td>
-                      <td
-                        className={cn(
-                          "px-3 py-2.5 text-right font-bold",
-                          out ? "text-red-500" : "text-emerald-600"
-                        )}
-                      >
-                        {out ? "Out of stock" : p.stock_quantity}
-                      </td>
-                      {isAdmin && (
-                        <>
-                          <td className="px-3 py-2.5 text-right text-[var(--text)]">
-                            {formatMoney(p.cost)}
-                          </td>
-                          <td className="px-3 py-2.5 text-right text-[var(--text)]">
-                            {formatMoney(p.price)}
-                          </td>
-                          <td className="px-3 py-2.5 text-right text-[var(--text)]">
-                            {formatMoney(p.cost * p.stock_quantity)}
-                          </td>
-                          <td className="px-3 py-2.5 text-right text-amber-600 font-semibold">
-                            {formatMoney(p.price * p.stock_quantity)}
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                >
+                  <div className="aspect-square bg-[var(--bg-muted)] flex items-center justify-center overflow-hidden">
+                    {p.image_url ? (
+                      <img src={p.image_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-3xl font-bold text-[var(--text-muted)]">{p.name[0]}</span>
+                    )}
+                  </div>
+                  <div className="p-2.5">
+                    <div className="font-semibold text-sm text-[var(--text)] line-clamp-2 leading-tight">{p.name}</div>
+                    <div className="text-xs text-[var(--text-muted)] mt-0.5">SKU {p.sku}</div>
+                    <div className={cn("text-sm font-bold mt-1", out ? "text-red-500" : "text-emerald-600")}>
+                      {out ? "Out of stock" : `Qty: ${p.stock_quantity}`}
+                    </div>
+                    {isAdmin && (
+                      <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
+                        {formatMoney(p.price)}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}

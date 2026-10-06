@@ -9,6 +9,7 @@ export function CreditsPage() {
   const session = useAppStore((s) => s.session)!;
   const settings = useAppStore((s) => s.settings);
   const credits = useAppStore((s) => s.credits);
+  const sales = useAppStore((s) => s.sales);
   const payCredit = useAppStore((s) => s.payCredit);
   const isAdmin =
     session.role === "admin" || session.role === "manager" || session.role === "accountant";
@@ -209,13 +210,39 @@ export function CreditsPage() {
               <div>Paid: {formatMoney(historySlip.amount_paid)}</div>
               <div className="font-bold">Balance: {formatMoney(historySlip.balance)}</div>
               <div className="border-t border-dashed border-black my-2" />
-              <div className="text-xs font-bold mb-1">Payments</div>
+              <div className="text-xs font-bold mb-1">Products on credit</div>
+              {sales
+                .filter(
+                  (s) =>
+                    s.payment_method === "credit" &&
+                    (s.credit_customer_name || "").toLowerCase() ===
+                      historySlip.customer_name.toLowerCase()
+                )
+                .map((s) => (
+                  <div key={s.id} className="mb-2 text-sm border-b border-black/20 pb-2">
+                    <div className="font-semibold">Order {s.sale_number}</div>
+                    {s.items.map((it) => (
+                      <div key={it.id} className="flex justify-between">
+                        <span>
+                          {it.quantity}× {it.product_name}
+                        </span>
+                        <span>{formatMoney(it.line_total)}</span>
+                      </div>
+                    ))}
+                    <div className="text-xs opacity-70">
+                      {new Date(s.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              <div className="text-xs font-bold mb-1 mt-2">Payments</div>
               {(historySlip.payments || []).length === 0 ? (
                 <div className="text-xs">No partial payments yet</div>
               ) : (
                 historySlip.payments.map((p, i) => (
                   <div key={i} className="text-xs flex justify-between mb-0.5">
-                    <span>{new Date(p.paid_at).toLocaleString()} · {p.method}</span>
+                    <span>
+                      {new Date(p.paid_at).toLocaleString()} · {p.method}
+                    </span>
                     <span>{formatMoney(p.amount)}</span>
                   </div>
                 ))

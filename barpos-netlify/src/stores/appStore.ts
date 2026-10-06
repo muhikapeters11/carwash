@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type {
+import type { ProductReturn, 
   Product, Sale, Credit, Expense, Supplier, User, ActivityLog,
   AppSettings, SessionUser, CartItem, PaymentMethod, StockReceive, StockAudit, AppTab,
 } from "@/types";
@@ -92,6 +92,7 @@ interface AppState {
   expenses: Expense[];
   addExpense: (description: string, amount: number, category?: string) => void;
   deleteExpense: (id: string) => void;
+  returnProducts: (items: { product_id: string; product_name: string; quantity: number; unit_price: number }[], note?: string) => void;
 
   // Suppliers
   suppliers: Supplier[];
@@ -131,6 +132,7 @@ export const useAppStore = create<AppState>()(
       heldSales: [],
       sales: [],
       credits: [],
+      productReturns: [],
       expenses: [],
       suppliers: [],
       stockReceives: [],
@@ -320,22 +322,42 @@ export const useAppStore = create<AppState>()(
 
         let creditId: string | undefined;
         if (method === "credit") {
-          creditId = uid();
-          const credit: Credit = {
-            id: creditId,
-            sale_id: "",
-            customer_name: opts?.creditCustomerName || "Unknown",
-            original_amount: total,
-            amount_paid: 0,
-            balance: total,
-            cashier_id: session.id,
-            cashier_name: session.full_name,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            payments: [],
-          };
-          // sale_id set below
-          set({ credits: [...get().credits, credit] });
+          const cname = (opts?.creditCustomerName || "Unknown").trim();
+          const key = cname.toLowerCase();
+          const existing = get().credits.find(
+            (c) => c.balance > 0 && c.customer_name.trim().toLowerCase() === key
+          );
+          if (existing) {
+            creditId = existing.id;
+            set({
+              credits: get().credits.map((c) =>
+                c.id === existing.id
+                  ? {
+                      ...c,
+                      original_amount: c.original_amount + total,
+                      balance: c.balance + total,
+                      updated_at: new Date().toISOString(),
+                    }
+                  : c
+              ),
+            });
+          } else {
+            creditId = uid();
+            const credit: Credit = {
+              id: creditId,
+              sale_id: "",
+              customer_name: cname,
+              original_amount: total,
+              amount_paid: 0,
+              balance: total,
+              cashier_id: session.id,
+              cashier_name: session.full_name,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              payments: [],
+            };
+            set({ credits: [...get().credits, credit] });
+          }
         }
 
         const sale: Sale = {
@@ -466,6 +488,41 @@ export const useAppStore = create<AppState>()(
         // also push sale line if created for debt paid
         const lastSale = get().sales[0];
         if (lastSale?.is_credit_payment) enqueueSync("sale", lastSale);
+      },
+
+
+      returnProducts: (items, note) => {
+        const session = get().session;
+        if (!session || !items.length) return;
+        const now = new Date().toISOString();
+        const returns = items.map((it) => ({
+          id: uid(),
+          product_id: it.product_id,
+          product_name: it.product_name,
+          quantity: it.quantity,
+          amount: it.quantity * it.unit_price,
+          note,
+          cashier_id: session.id,
+          cashier_name: session.full_name,
+          created_at: now,
+        }));
+        const products = get().products.map((p) => {
+          const r = items.find((i) => i.product_id === p.id);
+          if (!r) return p;
+          return {
+            ...p,
+            stock_quantity: p.stock_quantity + r.quantity,
+            updated_at: now,
+          };
+        });
+        set({
+          productReturns: [...returns, ...get().productReturns],
+          products,
+        });
+        get().logActivity("Product return", items.map((i) => `${i.quantity}× ${i.product_name}`).join(", "));
+        for (const p of products) {
+          if (items.some((i) => i.product_id === p.id)) enqueueSync("product_upsert", p);
+        }
       },
 
       addExpense: (description, amount, category) => {
@@ -645,6 +702,7 @@ export const useAppStore = create<AppState>()(
           heldSales: [],
           sales: [],
           credits: [],
+          productReturns: [],
           expenses: [],
           stockReceives: [],
           stockAudits: [],
@@ -733,6 +791,7 @@ export const useAppStore = create<AppState>()(
         products: s.products,
         sales: s.sales,
         credits: s.credits,
+        productReturns: s.productReturns,
         expenses: s.expenses,
         suppliers: s.suppliers,
         stockReceives: s.stockReceives,

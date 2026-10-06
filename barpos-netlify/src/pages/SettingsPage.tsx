@@ -41,7 +41,7 @@ export function SettingsPage() {
       }).catch(() => {});
     }
   }, []);
-  const [confirmReset, setConfirmReset] = useState("");
+  const [resetPin, setResetPin] = useState("");
   const logoRef = useRef<HTMLInputElement>(null);
   const cloud = useSyncStore((s) => s.cloud);
   const setCloud = useSyncStore((s) => s.setCloud);
@@ -71,8 +71,10 @@ export function SettingsPage() {
   };
 
   const doReset = async () => {
-    if (confirmReset !== "RESET") {
-      setMsg("Type RESET in capitals to confirm");
+    const admin = useAppStore.getState().users.find((u) => u.role === "admin" && u.is_active);
+    const pinOk = admin && resetPin === admin.pin;
+    if (!pinOk) {
+      setMsg("Enter the admin PIN to confirm reset");
       return;
     }
     if (
@@ -85,7 +87,7 @@ export function SettingsPage() {
     setMsg("Resetting local + cloud…");
     const result = await resetSystem();
     setMsg(result.message);
-    setConfirmReset("");
+    setResetPin("");
   };
 
   const compressLogo = (dataUrl: string) => compressImageDataUrl(dataUrl, 256, 0.72);
@@ -461,12 +463,14 @@ export function SettingsPage() {
       <section className="bg-[var(--bg-card)] rounded-2xl border border-red-200 dark:border-red-800 p-5 max-w-lg space-y-3">
         <h2 className="font-bold text-red-700 dark:text-red-400">Reset to clean slate</h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Erases ALL data. Type <strong>RESET</strong> to confirm. Login after: PIN 1234.
+          Erases ALL data on this device and cloud. Enter <strong>admin PIN</strong> to confirm. After: login PIN 1234.
         </p>
         <input
-          placeholder="Type RESET"
-          value={confirmReset}
-          onChange={(e) => setConfirmReset(e.target.value)}
+          placeholder="Admin PIN"
+          type="password"
+          inputMode="numeric"
+          value={resetPin}
+          onChange={(e) => setResetPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
           className="w-full px-3 py-2.5 rounded-xl border border-[var(--border)]"
         />
         <button onClick={doReset} className="w-full py-3 rounded-xl bg-red-600 text-white font-bold">

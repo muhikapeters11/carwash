@@ -129,6 +129,18 @@ export interface Credit {
   payments: { amount: number; method: PaymentMethod; paid_at: string; recorded_by: string }[];
 }
 
+export interface ProductReturn {
+  id: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  amount: number;
+  note?: string;
+  cashier_id: string;
+  cashier_name: string;
+  created_at: string;
+}
+
 export interface Expense {
   id: string;
   description: string;

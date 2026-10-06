@@ -6,6 +6,7 @@ import type { Sale } from "@/types";
 
 export function DashboardPage() {
   const session = useAppStore((s) => s.session)!;
+  const productReturns = useAppStore((s) => s.productReturns || []);
   const getTodaySales = useAppStore((s) => s.getTodaySales);
   const getYesterdaySales = useAppStore((s) => s.getYesterdaySales);
   const expenses = useAppStore((s) => s.expenses);

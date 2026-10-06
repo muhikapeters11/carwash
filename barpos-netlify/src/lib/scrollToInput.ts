@@ -1,19 +1,20 @@
 /** Keep the active field visible above the virtual keyboard / viewport */
 
-const KEYBOARD_RESERVE_PX = 320; // approx on-screen keyboard height
+const KEYBOARD_RESERVE_PX = 380; // approx on-screen keyboard height
 
 export function scrollFieldIntoView(el: HTMLElement | null | undefined) {
   if (!el || typeof el.scrollIntoView !== "function") return;
 
   try {
-    el.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-      inline: "nearest",
-    });
+    el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
   } catch {
     el.scrollIntoView();
   }
+  setTimeout(() => {
+    try {
+      el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    } catch { /* ignore */ }
+  }, 280);
 
   // Extra offset so field sits above fixed virtual keyboard
   requestAnimationFrame(() => {

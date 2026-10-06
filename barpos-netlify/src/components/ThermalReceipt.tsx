@@ -152,12 +152,12 @@ function ReceiptBody({
       <div className="text-center text-[10px] mt-1">
         {new Date(sale.created_at).toLocaleString()}
       </div>
-      <div className="text-center text-[10px]">Served by: {sale.cashier_name}</div>
       {sale.sale_number ? (
-        <div className="text-center font-bold text-sm mt-1 tracking-wide">
+        <div className="text-center text-[10px] mt-0.5">
           Order: {sale.sale_number}
         </div>
       ) : null}
+      <div className="text-center text-[10px]">Served by: {sale.cashier_name}</div>
 
       <div className="border-t border-dashed border-black my-1.5" />
 

@@ -15,9 +15,11 @@ export function SellPage() {
   const holdSale = useAppStore((s) => s.holdSale);
   const loadHeldSale = useAppStore((s) => s.loadHeldSale);
   const completeSale = useAppStore((s) => s.completeSale);
+  const returnProducts = useAppStore((s) => s.returnProducts);
   const settings = useAppStore((s) => s.settings);
   const session = useAppStore((s) => s.session);
   const sales = useAppStore((s) => s.sales);
+  const allProducts = useAppStore((s) => s.products);
   const lastSale = sales.find((s) => s.status === "completed" && s.cashier_id === session?.id)
     || sales.find((s) => s.status === "completed");
 
@@ -25,8 +27,11 @@ export function SellPage() {
   const [creditName, setCreditName] = useState("");
   const [cashReceived, setCashReceived] = useState("");
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null);
+  const [showReturn, setShowReturn] = useState(false);
+  const [retPid, setRetPid] = useState("");
+  const [retQty, setRetQty] = useState("1");
   const [showHeld, setShowHeld] = useState(false);
-  const [showReprint, setShowReprint] = useState(false);
+  
   const kb = useVirtualKeyboard();
 
   const total = cart.reduce((s, i) => s + i.line_total, 0);
@@ -71,124 +76,6 @@ export function SellPage() {
         <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between text-[var(--text)]">
           <span className="font-bold text-[var(--text)]">Current Sale</span>
           <div className="flex gap-1">
-            <button
-              onClick={() => setShowReprint(true)}
-              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 text-xs font-semibold"
-              title="Reprint"
-            >
-              Reprint
-            </button>
-            <button
-              onClick={() => setShowHeld(true)}
-              className="relative p-2 rounded-lg hover:bg-slate-100 text-slate-500"
-              title="Held sales"
-            >
-              <Pause size={18} />
-              {heldSales.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-amber-500 text-white text-[10px] rounded-full flex items-center justify-center">
-                  {heldSales.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => {
-                if (cart.length === 0) return;
-                if (window.confirm("Clear this sale? All items will be removed.")) clearCart();
-              }}
-              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
-              title="Clear"
-            >
-              <Eraser size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {cart.length === 0 ? (
-            <p className="text-center text-slate-400 mt-8 text-sm">Tap products to add</p>
-          ) : (
-            cart.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-xl"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate">{item.product_name}</div>
-                  <div className="text-xs text-amber-600 font-semibold">
-                    {formatMoney(item.line_total)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => updateCartQty(item.id, item.quantity - 1)}
-                    className="w-8 h-8 rounded-lg bg-white border flex items-center justify-center"
-                  >
-                    <Minus size={14} />
-                  </button>
-                  <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
-                  <button
-                    onClick={() => updateCartQty(item.id, item.quantity + 1)}
-                    className="w-8 h-8 rounded-lg bg-white border flex items-center justify-center"
-                  >
-                    <Plus size={14} />
-                  </button>
-                  <button
-                    onClick={() => updateCartQty(item.id, 0)}
-                    className="w-8 h-8 rounded-lg text-red-500 flex items-center justify-center"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="border-t border-[var(--border)] p-4 space-y-3">
-          <div className="flex justify-between text-xl font-extrabold text-[var(--text)]">
-            <span>Total</span>
-            <span className="text-amber-600">{formatMoney(total)}</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              disabled={!canPay}
-              onClick={() => openPay("cash")}
-              className="py-4 min-h-[56px] rounded-2xl bg-emerald-500 text-white font-bold text-sm disabled:opacity-40"
-            >
-              Cash
-            </button>
-            <button
-              disabled={!canPay}
-              onClick={() => openPay("mpesa")}
-              className="py-4 min-h-[56px] rounded-2xl bg-green-600 text-white font-bold text-sm disabled:opacity-40"
-            >
-              M-Pesa
-            </button>
-            <button
-              disabled={!canPay}
-              onClick={() => openPay("card")}
-              className="py-4 min-h-[56px] rounded-2xl bg-blue-600 text-white font-bold text-sm disabled:opacity-40"
-            >
-              Card
-            </button>
-            <button
-              disabled={!canPay}
-              onClick={() => openPay("credit")}
-              className="py-4 min-h-[56px] rounded-2xl bg-purple-600 text-white font-bold text-sm disabled:opacity-40"
-            >
-              Credit
-            </button>
-          </div>
-
-          {lastSale && (
-            <button
-              type="button"
-              onClick={() => setReceiptSale(lastSale)}
-              className="w-full mb-2 py-3 min-h-[48px] rounded-xl border-2 border-amber-400 text-amber-800 dark:text-amber-200 font-bold text-sm touch-manipulation"
-            >
-              Reprint last sale · {lastSale.sale_number}
-            </button>
           )}
 
           <div className="grid grid-cols-2 gap-2">
@@ -304,7 +191,52 @@ export function SellPage() {
         />
       )}
 
-      {/* Held sales */}
+      
+      {showReturn && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="bg-[var(--bg-card)] rounded-2xl w-full max-w-md p-5 space-y-3 border border-[var(--border)]">
+            <h3 className="font-bold text-[var(--text)]">Return product</h3>
+            <select
+              value={retPid}
+              onChange={(e) => setRetPid(e.target.value)}
+              className="w-full px-3 py-3 rounded-xl border border-[var(--border)] text-[var(--text)]"
+            >
+              <option value="">Select product</option>
+              {allProducts.filter((p) => p.is_active !== false).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={1}
+              value={retQty}
+              onChange={(e) => setRetQty(e.target.value)}
+              className="w-full px-3 py-3 rounded-xl border border-[var(--border)]"
+              placeholder="Quantity"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="flex-1 py-3 rounded-xl bg-amber-500 text-white font-bold"
+                onClick={() => {
+                  const p = allProducts.find((x) => x.id === retPid);
+                  const q = parseInt(retQty, 10);
+                  if (!p || !q || q < 1) return;
+                  returnProducts([{ product_id: p.id, product_name: p.name, quantity: q, unit_price: p.price }]);
+                  setShowReturn(false);
+                  setRetPid("");
+                  setRetQty("1");
+                }}
+              >
+                Confirm return
+              </button>
+              <button type="button" className="flex-1 py-3 rounded-xl border border-[var(--border)] font-semibold" onClick={() => setShowReturn(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+{/* Held sales */}
       {showHeld && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col overflow-hidden">
@@ -338,39 +270,6 @@ export function SellPage() {
           </div>
         </div>
       )}
-
-      {showReprint && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col overflow-hidden">
-            <div className="px-5 py-4 border-b flex justify-between items-center">
-              <h2 className="font-bold">Reprint receipt</h2>
-              <button onClick={() => setShowReprint(false)} className="p-2 hover:bg-slate-100 rounded-lg">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {sales.filter((s) => s.status === "completed" && (session?.role === "admin" || s.cashier_id === session?.id)).slice(0, 40).length === 0 ? (
-                <p className="text-center text-slate-400 py-8">No sales to reprint</p>
-              ) : (
-                sales
-                  .filter((s) => s.status === "completed" && (session?.role === "admin" || s.cashier_id === session?.id))
-                  .slice(0, 40)
-                  .map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => {
-                        setReceiptSale(s);
-                        setShowReprint(false);
-                      }}
-                      className="w-full text-left p-3 rounded-xl border hover:border-amber-400"
-                    >
-                      <div className="font-bold text-sm">{s.sale_number}</div>
-                      <div className="text-xs text-slate-500">
-                        {new Date(s.created_at).toLocaleString()} · {formatMoney(s.total)} · {s.payment_method}
-                      </div>
-                    </button>
-                  ))
-              )}
             </div>
           </div>
         </div>
