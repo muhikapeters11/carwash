@@ -70,6 +70,8 @@ interface AppState {
   addProduct: (p: Omit<Product, "id" | "created_at" | "updated_at">) => void;
   updateProduct: (id: string, patch: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
+  /** Delete every product locally + queue cloud deletes */
+  deleteAllProducts: () => void;
   /** Apply server/realtime product without re-queueing sync */
   mergeRemoteProduct: (product: Product) => void;
 
@@ -276,6 +278,24 @@ export const useAppStore = create<AppState>()(
         set({ products: get().products.filter((p) => p.id !== id) });
         if (prod) get().logActivity("Product deleted", prod.name);
         enqueueSync("product_delete", { id });
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const s = useSyncStore.getState();
+          if (s.isOnline) void s.syncNow({ silent: true });
+        });
+      },
+
+      deleteAllProducts: () => {
+        const list = get().products;
+        if (!list.length) return;
+        for (const p of list) {
+          enqueueSync("product_delete", { id: p.id });
+        }
+        set({ products: [] });
+        get().logActivity("All products deleted", `${list.length} items`);
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const s = useSyncStore.getState();
+          if (s.isOnline) void s.syncNow({ silent: true });
+        });
       },
 
       mergeRemoteProduct: (product) => {

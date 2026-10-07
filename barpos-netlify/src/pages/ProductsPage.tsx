@@ -10,6 +10,7 @@ export function ProductsPage() {
   const addProduct = useAppStore((s) => s.addProduct);
   const updateProduct = useAppStore((s) => s.updateProduct);
   const deleteProduct = useAppStore((s) => s.deleteProduct);
+  const deleteAllProducts = useAppStore((s) => s.deleteAllProducts);
   const setProducts = useAppStore((s) => s.setProducts);
   const groups = groupProductsByCategory(products);
   const [showForm, setShowForm] = useState(false);
@@ -66,6 +67,13 @@ export function ProductsPage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !sku || !price) return;
+    const skuTaken = products.some(
+      (p) => p.sku.trim().toLowerCase() === sku.trim().toLowerCase() && p.id !== editing?.id
+    );
+    if (skuTaken) {
+      alert("A product with this SKU already exists. Use a unique SKU or edit the existing product.");
+      return;
+    }
     const payload = {
       name,
       sku,
@@ -102,32 +110,164 @@ export function ProductsPage() {
     a.click();
   };
 
+  const parseCsvLine = (line: string): string[] => {
+    const out: string[] = [];
+    let cur = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if ((ch === "," || ch === ";") && !inQuotes) {
+        out.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out.map((c) => c.trim().replace(/^\uFEFF/, ""));
+  };
+
   const importCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+      alert(
+        "Excel (.xlsx) is not supported directly. In Excel: File → Save As → CSV (Comma delimited), then import that CSV."
+      );
+      e.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
-      const lines = (reader.result as string).trim().split("\n").slice(1);
-      const imported = lines.map((line, i) => {
-        const [sku, name, category, price, cost, stock, upp, pl] = line.split(",");
-        return {
-          id: `imp-${Date.now()}-${i}`,
-          sku: sku?.trim() || `SKU${i}`,
-          name: name?.trim() || "Product",
-          category: (category?.trim() as ProductCategory) || "other",
-          price: Math.round(parseFloat(price || "0") * 100),
-          cost: Math.round(parseFloat(cost || "0") * 100),
-          stock_quantity: parseInt(stock || "0", 10),
-          units_per_pack: parseInt(upp || "1", 10) || 1,
-          pack_label: pl?.trim() || undefined,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
+      const raw = (reader.result as string).replace(/^\uFEFF/, "");
+      const lines = raw
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      if (!lines.length) {
+        alert("File is empty");
+        e.target.value = "";
+        return;
+      }
+
+      // Skip header if first cell looks like "sku"
+      let dataLines = lines;
+      const firstCells = parseCsvLine(lines[0]);
+      if (firstCells[0]?.toLowerCase() === "sku" || firstCells[0]?.toLowerCase() === "name") {
+        dataLines = lines.slice(1);
+      }
+
+      const validCategories: ProductCategory[] = [
+        "beer",
+        "spirits",
+        "soft_drinks",
+        "wine",
+        "cocktails",
+        "food",
+        "other",
+      ];
+
+      // Merge by SKU so re-import never creates duplicates
+      const bySku = new Map<string, Product>();
+      for (const p of useAppStore.getState().products) {
+        if (p.sku) bySku.set(p.sku.trim().toLowerCase(), p);
+      }
+
+      let updated = 0;
+      let added = 0;
+      const seenInFile = new Set<string>();
+
+      dataLines.forEach((line, i) => {
+        const cols = parseCsvLine(line);
+        if (cols.length < 2) return;
+        const skuRaw = (cols[0] || "").trim();
+        const name = (cols[1] || "").trim();
+        if (!skuRaw && !name) return;
+        const sku = skuRaw || `SKU${i + 1}`;
+        const skuKey = sku.toLowerCase();
+        // Same SKU twice in one file → last row wins
+        if (seenInFile.has(skuKey)) {
+          /* overwrite below */
+        }
+        seenInFile.add(skuKey);
+
+        let category = (cols[2] || "other").trim().toLowerCase().replace(/\s+/g, "_") as ProductCategory;
+        if (!validCategories.includes(category)) category = "other";
+
+        const priceNum = parseFloat((cols[3] || "0").replace(/[^0-9.-]/g, "")) || 0;
+        const costNum = parseFloat((cols[4] || "0").replace(/[^0-9.-]/g, "")) || 0;
+        const stockNum = parseInt((cols[5] || "0").replace(/[^0-9-]/g, ""), 10) || 0;
+        const upp = parseInt((cols[6] || "1").replace(/[^0-9]/g, ""), 10) || 1;
+        const pl = (cols[7] || "").trim() || undefined;
+        const now = new Date().toISOString();
+
+        const existing = bySku.get(skuKey);
+        if (existing) {
+          bySku.set(skuKey, {
+            ...existing,
+            sku,
+            name: name || existing.name,
+            category,
+            price: Math.round(priceNum * 100),
+            cost: Math.round(costNum * 100),
+            stock_quantity: stockNum,
+            units_per_pack: upp,
+            pack_label: pl,
+            is_active: true,
+            updated_at: now,
+          });
+          updated++;
+        } else {
+          bySku.set(skuKey, {
+            id: `imp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+            sku,
+            name: name || "Product",
+            category,
+            price: Math.round(priceNum * 100),
+            cost: Math.round(costNum * 100),
+            stock_quantity: stockNum,
+            units_per_pack: upp,
+            pack_label: pl,
+            min_stock: 0,
+            is_active: true,
+            created_at: now,
+            updated_at: now,
+          });
+          added++;
+        }
       });
-      setProducts([...products, ...imported]);
+
+      const merged = Array.from(bySku.values());
+      setProducts(merged);
+      alert(`Import done: ${added} added, ${updated} updated. Total products: ${merged.length}`);
+      e.target.value = "";
     };
     reader.readAsText(file);
+  };
+
+  const onDeleteAll = () => {
+    const n = useAppStore.getState().products.length;
+    if (!n) {
+      alert("No products to delete");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Delete ALL ${n} products? This cannot be undone. Cloud will be updated if online.`
+      )
+    ) {
+      return;
+    }
+    if (!window.confirm("Are you sure? Every product will be removed.")) return;
+    deleteAllProducts();
   };
 
   return (
@@ -135,11 +275,19 @@ export function ProductsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h1 className="text-xl font-bold text-[var(--text)]">Products</h1>
         <div className="flex gap-2">
-          <button onClick={exportCsv} className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm font-medium text-[var(--text)]">Export CSV</button>
+                    <button onClick={exportCsv} className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm font-medium text-[var(--text)]">Export CSV</button>
           <label className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm font-medium cursor-pointer text-[var(--text)]">
             Import CSV
-            <input type="file" accept=".csv" className="hidden" onChange={importCsv} />
+            <input type="file" accept=".csv,text/csv,.xlsx,.xls" className="hidden" onChange={importCsv} />
           </label>
+          <button
+            type="button"
+            onClick={onDeleteAll}
+            className="px-3 py-2 rounded-lg border border-red-300 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+          >
+            Delete all products
+          </button>
+
           <button onClick={openAdd} className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-bold">Add Product</button>
         </div>
       </div>
