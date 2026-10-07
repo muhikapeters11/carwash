@@ -229,6 +229,46 @@ const handlers: Record<string, Handler> = {
       })
     );
   },
+
+  supplier_delete: async (cfg, op) => {
+    const payload = op.payload as { id: string };
+    const { supabaseRest } = await import("@/lib/supabase");
+    const { error, status } = await supabaseRest(cfg, "suppliers", {
+      method: "DELETE",
+      query: `id=eq.${encodeURIComponent(payload.id)}`,
+    });
+    if (error && status !== 404) return toPushFailure(error, status);
+    return { ok: true };
+  },
+
+  product_return: async (cfg, op) => {
+    const r = op.payload as {
+      id: string;
+      product_id: string;
+      product_name: string;
+      quantity: number;
+      amount: number;
+      note?: string;
+      cashier_id: string;
+      cashier_name: string;
+      created_at: string;
+    };
+    return upsert(
+      cfg,
+      "product_returns",
+      stripUndefined({
+        id: r.id,
+        product_id: r.product_id,
+        product_name: r.product_name,
+        quantity: r.quantity,
+        amount: r.amount,
+        note: r.note ?? null,
+        cashier_id: r.cashier_id,
+        cashier_name: r.cashier_name,
+        created_at: r.created_at,
+      })
+    );
+  },
 };
 
 export async function dispatchPendingOp(

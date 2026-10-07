@@ -2,7 +2,7 @@ import type { Product, User } from "@/types";
 
 /**
  * Last-Write-Wins by updated_at.
- * Equal timestamps: prefer remote stock when merging cloud-first.
+ * Local stock is protected when local is newer or equal (receives/sales must stick).
  */
 export function mergeProductLWW(
   local: Product,
@@ -12,7 +12,21 @@ export function mergeProductLWW(
   const lt = new Date(local.updated_at || 0).getTime();
   const rt = new Date(remote.updated_at || 0).getTime();
 
-  if (rt > lt || (rt === lt && preferRemoteOnTie)) {
+  if (rt > lt) {
+    // Remote newer — still protect a very recent local stock change (race with pull)
+    const localFresh = Date.now() - lt < 120_000; // 2 minutes
+    if (localFresh && local.stock_quantity !== remote.stock_quantity && lt >= rt - 1000) {
+      return {
+        ...remote,
+        ...local,
+        stock_quantity: local.stock_quantity,
+        cost: local.cost ?? remote.cost,
+        updated_at: local.updated_at || remote.updated_at,
+        units_per_pack: local.units_per_pack ?? remote.units_per_pack ?? 1,
+        min_stock: local.min_stock ?? remote.min_stock ?? 0,
+        is_active: local.is_active !== false,
+      };
+    }
     return {
       ...local,
       ...remote,
@@ -21,25 +35,25 @@ export function mergeProductLWW(
       is_active: remote.is_active !== false,
     };
   }
-  if (rt < lt) return local;
 
+  // Local newer or equal → keep local (especially stock after receive)
   return {
     ...remote,
     ...local,
     stock_quantity: local.stock_quantity,
+    cost: local.cost ?? remote.cost,
     updated_at: local.updated_at || remote.updated_at,
+    units_per_pack: local.units_per_pack ?? remote.units_per_pack ?? 1,
+    min_stock: local.min_stock ?? remote.min_stock ?? 0,
+    is_active: local.is_active !== false,
   };
 }
 
-/** Local-base merge (legacy) */
 export function mergeCatalog(local: Product[], remote: Product[]): Product[] {
   return mergeCatalogCloudFirst(local, remote);
 }
 
-/**
- * Cloud is shared source of truth when remote has rows.
- * Remote catalog is base; local-only offline adds are kept.
- */
+/** Merge cloud + local; local newer stock always wins */
 export function mergeCatalogCloudFirst(
   local: Product[],
   remote: Product[]
@@ -68,15 +82,14 @@ export function mergeCatalogCloudFirst(
     if (!lp?.id) continue;
     const existing = byId.get(lp.id);
     if (!existing) {
-      // Local-only: keep briefly so offline-created products survive until push
-      // After cloud has a catalog, deleted cloud rows disappear on other devices
       const updated = new Date(lp.updated_at || 0).getTime();
       const age = Date.now() - updated;
       if (updated > 0 && age < 2 * 24 * 60 * 60 * 1000) {
         byId.set(lp.id, lp);
       }
     } else {
-      byId.set(lp.id, mergeProductLWW(lp, existing, true));
+      // preferRemoteOnTie = false so receives stick
+      byId.set(lp.id, mergeProductLWW(lp, existing, false));
     }
   }
   return Array.from(byId.values());
@@ -86,7 +99,6 @@ export function mergeUsers(local: User[], remote: User[]): User[] {
   return mergeUsersCloudFirst(local, remote);
 }
 
-/** Prefer cloud users/PINs when cloud has any users */
 export function mergeUsersCloudFirst(local: User[], remote: User[]): User[] {
   if (!remote?.length) {
     return (local || []).filter((u) => u.is_active !== false);
@@ -116,7 +128,6 @@ export function mergeUsersCloudFirst(local: User[], remote: User[]): User[] {
       const lt = new Date(
         (lu as User & { updated_at?: string }).updated_at || lu.created_at || 0
       ).getTime();
-      // Prefer cloud (existing) on tie — same PINs on every device
       if (lt > rt) byId.set(lu.id, { ...existing, ...lu });
     }
   }

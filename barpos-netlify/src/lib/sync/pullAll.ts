@@ -11,6 +11,7 @@ import type {
   Credit,
 } from "@/types";
 import { classifySyncError, humanSyncError, type SyncErrorKind } from "@/lib/sync/errors";
+import { mergeCatalog, mergeUsers } from "@/lib/sync/merge";
 
 export type RemoteSnapshot = {
   products?: Product[];
@@ -20,8 +21,8 @@ export type RemoteSnapshot = {
   stockAudits?: StockAudit[];
   expenses?: Expense[];
   suppliers?: Supplier[];
+  productReturns?: any[];
   settings?: Record<string, unknown>;
-  credits?: Credit[];
   errors: string[];
 };
 
@@ -59,7 +60,7 @@ export async function pullAllRemote(cfg: CloudConfig): Promise<RemoteSnapshot> {
     return { errors: ["Cloud not configured"] };
   }
 
-  const [products, users, sales, receives, audits, expenses, suppliers, settingsRow, creditEvents] =
+  const [products, users, sales, receives, audits, expenses, suppliers, productReturns, settingsRow] =
     await Promise.all([
       getTable<Product>(cfg, "products", "select=*&order=updated_at.desc"),
       getTable<User>(cfg, "users", "select=*"),
@@ -68,46 +69,16 @@ export async function pullAllRemote(cfg: CloudConfig): Promise<RemoteSnapshot> {
       getTable<StockAudit>(cfg, "stock_audits", "select=*&order=created_at.desc&limit=1000"),
       getTable<Expense>(cfg, "expenses", "select=*&order=created_at.desc&limit=1000"),
       getTable<Supplier>(cfg, "suppliers", "select=*"),
+      getTable<any>(cfg, "product_returns", "select=*&order=created_at.desc&limit=1000"),
       getTable<{ id: string; payload: Record<string, unknown> }>(
         cfg,
         "app_settings",
         "select=*&id=eq.app"
       ),
-      getTable<{ id: string; payload: Record<string, unknown>; created_at?: string }>(
-        cfg,
-        "credit_events",
-        "select=*&order=created_at.asc&limit=5000"
-      ),
     ]);
 
-  for (const r of [products, users, sales, receives, audits, expenses, suppliers, settingsRow, creditEvents]) {
+  for (const r of [products, users, sales, receives, audits, expenses, suppliers, productReturns, settingsRow]) {
     if (r.error) errors.push(r.error);
-  }
-
-  // Credits are stored as immutable credit_events so every device can rebuild
-  // the same current credit balance without requiring a separate credits table.
-  const creditsById = new Map<string, Credit>();
-  for (const event of creditEvents.data || []) {
-    const payload = (event as any)?.payload || {};
-    if (payload.type === "credit_open" && payload.credit?.id) {
-      const c = payload.credit as Credit;
-      creditsById.set(c.id, c);
-    } else if (payload.type === "credit_pay" && payload.credit_id) {
-      const current = creditsById.get(String(payload.credit_id));
-      if (current) {
-        const amount = Math.max(0, Number(payload.amount) || 0);
-        const paidAt = String(payload.at || event.created_at || new Date().toISOString());
-        const newPaid = Math.min(current.original_amount, current.amount_paid + amount);
-        creditsById.set(current.id, {
-          ...current,
-          amount_paid: newPaid,
-          balance: Math.max(0, current.original_amount - newPaid),
-          updated_at: paidAt,
-          fully_paid_at: newPaid >= current.original_amount ? (current.fully_paid_at || paidAt) : current.fully_paid_at,
-          payments: [...(current.payments || []), { amount, method: payload.method, paid_at: paidAt, recorded_by: String(payload.recorded_by || payload.device_id || "system") }],
-        });
-      }
-    }
   }
 
   return {
@@ -118,7 +89,7 @@ export async function pullAllRemote(cfg: CloudConfig): Promise<RemoteSnapshot> {
     stockAudits: audits.data,
     expenses: expenses.data,
     suppliers: suppliers.data,
-    credits: creditEvents.data !== undefined ? Array.from(creditsById.values()) : undefined,
+    productReturns: productReturns.data,
     settings: settingsRow.data?.[0]?.payload as Record<string, unknown> | undefined,
     errors,
   };
@@ -134,37 +105,14 @@ export async function applyRemoteSnapshot(
 
   // Merge cloud + local (LWW). Never wipe newer local changes on refresh/sync.
   // Other devices still get cloud rows; local pending wins until pushed.
-  if (Array.isArray(snap.products)) {
-    // Cloud catalog is the shared source of truth after push
-    const normalized = snap.products.map((rp: any) => ({
-      units_per_pack: 1,
-      min_stock: 0,
-      is_active: true,
-      created_at: rp.created_at || new Date().toISOString(),
-      updated_at: rp.updated_at || new Date().toISOString(),
-      sku: "",
-      name: "",
-      category: "soft_drinks",
-      price: 0,
-      cost: 0,
-      stock_quantity: 0,
-      ...rp,
-    }));
-    // After a successful cloud pull, Supabase is the shared source of truth.
-    // Keep only truly local products that are still waiting in the sync queue.
-    const pendingProductIds = new Set(
-      (await import("@/stores/syncStore")).useSyncStore
-        .getState()
-        .pendingOps
-        .filter((o: any) => o.type === "product_upsert" || o.type === "product_delete")
-        .map((o: any) => String((o.payload as any)?.id || (o.payload as any)?.product_id || ""))
-    );
-    const mergedProducts = normalized.concat(
-      (s.products || []).filter((p: any) => !normalized.some((r: any) => r.id === p.id) && pendingProductIds.has(p.id))
-    );
-    setState({ products: mergedProducts });
+  if (snap.products?.length) {
+    // Merge LWW so a local stock receive is not wiped by an older cloud row
+    const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
+    setState({
+      products: mergeCatalogCloudFirst(s.products || [], snap.products),
+    });
   }
-  if (Array.isArray(snap.users)) {
+  if (snap.users?.length) {
     const normalized = snap.users
       .filter((u: any) => u?.id && u.is_active !== false)
       .map((u: any) => ({
@@ -173,62 +121,58 @@ export async function applyRemoteSnapshot(
         created_at: u.created_at || new Date().toISOString(),
         ...u,
       }));
-
-    // Never remove the built-in recovery accounts merely because the cloud
-    // database was created before those accounts existed.
-    const byId = new Map(normalized.map((u: any) => [u.id, u]));
-    const localUsers = Array.isArray(s.users) ? s.users : [];
-    for (const fallback of localUsers.filter((u: any) =>
-      (u?.id === "u-admin" || u?.id === "u-cashier") && u.is_active !== false
-    )) {
-      if (!byId.has(fallback.id)) byId.set(fallback.id, fallback);
-    }
-    if (!byId.has("u-admin")) {
-      byId.set("u-admin", {
-        id: "u-admin",
-        full_name: "System Admin",
-        username: "admin",
-        role: "admin",
-        pin: "1234",
-        allowed_tabs: [],
-        is_active: true,
-        created_at: new Date().toISOString(),
-      });
-    }
-    if (!byId.has("u-cashier")) {
-      byId.set("u-cashier", {
-        id: "u-cashier",
-        full_name: "John Cashier",
-        username: "cashier",
-        role: "cashier",
-        pin: "0000",
-        allowed_tabs: ["dashboard", "sell", "inventory", "credits"],
-        is_active: true,
-        created_at: new Date().toISOString(),
-      });
-    }
-    setState({ users: Array.from(byId.values()) });
+    if (normalized.length) setState({ users: normalized });
   }
-  if (Array.isArray(snap.sales)) {
-    const sales = [...snap.sales].sort(
-      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  if (snap.sales?.length) {
+    // Union by id so offline sales already pushed are included
+    const merged = byIdMerge(s.sales || [], snap.sales);
+    merged.sort(
+      (a, b) =>
+        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
     );
-    setState({ sales });
+    setState({ sales: merged });
   }
-  if (Array.isArray(snap.stockReceives)) {
-    setState({ stockReceives: snap.stockReceives });
+  if (snap.stockReceives?.length) {
+    setState({
+      stockReceives: byIdMerge(s.stockReceives || [], snap.stockReceives),
+    });
   }
-  if (Array.isArray(snap.stockAudits)) {
-    setState({ stockAudits: snap.stockAudits });
-  }
-  if (Array.isArray(snap.credits)) {
-    setState({ credits: snap.credits });
+  if (snap.stockAudits?.length) {
+    setState({
+      stockAudits: byIdMerge(s.stockAudits || [], snap.stockAudits),
+    });
   }
   if (Array.isArray(snap.expenses)) {
-    setState({ expenses: snap.expenses });
+    const remoteIds = new Set(snap.expenses.map((e: any) => e.id));
+    const localOnly = (s.expenses || []).filter((e: any) => {
+      if (remoteIds.has(e.id)) return false;
+      const age = Date.now() - new Date(e.created_at || 0).getTime();
+      return age < 2 * 24 * 60 * 60 * 1000; // offline-created not yet on cloud
+    });
+    setState({ expenses: [...snap.expenses, ...localOnly] });
   }
   if (Array.isArray(snap.suppliers)) {
-    setState({ suppliers: snap.suppliers });
+    const remoteIds = new Set(snap.suppliers.map((x: any) => x.id));
+    const localOnly = (s.suppliers || []).filter((x: any) => {
+      if (remoteIds.has(x.id)) return false;
+      const age = Date.now() - new Date(x.created_at || 0).getTime();
+      return age < 2 * 24 * 60 * 60 * 1000;
+    });
+    setState({ suppliers: [...snap.suppliers, ...localOnly] });
+  }
+  if (Array.isArray(snap.productReturns)) {
+    const remoteIds = new Set(snap.productReturns.map((x: any) => x.id));
+    const localOnly = (s.productReturns || []).filter((x: any) => {
+      if (remoteIds.has(x.id)) return false;
+      const age = Date.now() - new Date(x.created_at || 0).getTime();
+      return age < 2 * 24 * 60 * 60 * 1000;
+    });
+    const merged = [...snap.productReturns, ...localOnly];
+    merged.sort(
+      (a: any, b: any) =>
+        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+    setState({ productReturns: merged });
   }
   if (snap.settings && typeof snap.settings === "object") {
     // Keep this device theme + printer preference

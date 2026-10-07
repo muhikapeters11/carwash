@@ -111,6 +111,7 @@ const CLOUD_TABLES = [
   "suppliers",
   "users",
   "app_settings",
+  "product_returns",
 ] as const;
 
 /**

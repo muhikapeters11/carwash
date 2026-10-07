@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { Trash2 } from "lucide-react";
 
 export function SuppliersPage() {
   const suppliers = useAppStore((s) => s.suppliers);
   const addSupplier = useAppStore((s) => s.addSupplier);
+  const deleteSupplier = useAppStore((s) => s.deleteSupplier);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -32,7 +34,11 @@ export function SuppliersPage() {
           <input
             readOnly
             value={name}
-            onClick={(e) => kb.openFor(name, setName, "alpha", e.currentTarget)}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              kb.openFor(name, setName, "alpha", e.currentTarget);
+            }}
             placeholder="Supplier name"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
             required
@@ -43,7 +49,11 @@ export function SuppliersPage() {
           <input
             readOnly
             value={phone}
-            onClick={(e) => kb.openFor(phone, setPhone, "numeric", e.currentTarget)}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              kb.openFor(phone, setPhone, "numeric", e.currentTarget);
+            }}
             placeholder="Optional"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
           />
@@ -53,7 +63,11 @@ export function SuppliersPage() {
           <input
             readOnly
             value={email}
-            onClick={(e) => kb.openFor(email, setEmail, "alpha", e.currentTarget)}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              kb.openFor(email, setEmail, "alpha", e.currentTarget);
+            }}
             placeholder="Optional"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
           />
@@ -67,11 +81,23 @@ export function SuppliersPage() {
           <p className="p-6 text-[var(--text-muted)] text-sm">No suppliers</p>
         ) : (
           suppliers.map((s) => (
-            <div key={s.id} className="px-5 py-3">
-              <div className="font-medium text-[var(--text)]">{s.name}</div>
-              <div className="text-xs text-[var(--text-muted)]">
-                {[s.phone, s.email].filter(Boolean).join(" · ")}
+            <div key={s.id} className="px-5 py-3 flex justify-between items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-[var(--text)]">{s.name}</div>
+                <div className="text-xs text-[var(--text-muted)]">
+                  {[s.phone, s.email].filter(Boolean).join(" · ") || "No contact"}
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Delete supplier "${s.name}"?`)) deleteSupplier(s.id);
+                }}
+                className="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 shrink-0"
+                title="Delete"
+              >
+                <Trash2 size={18} />
+              </button>
             </div>
           ))
         )}

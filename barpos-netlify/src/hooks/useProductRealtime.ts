@@ -21,10 +21,11 @@ export function useProductRealtime() {
     const stop = startProductRealtime(cloud, {
       onProduct: (product, event) => {
         if (event === "DELETE") {
+          // Soft-deactivate only — do not setProducts (that re-pushes entire catalog)
           const products = useAppStore.getState().products.map((p) =>
             p.id === product.id ? { ...p, is_active: false } : p
           );
-          useAppStore.getState().setProducts(products);
+          useAppStore.setState({ products });
           return;
         }
         useAppStore.getState().mergeRemoteProduct(product);

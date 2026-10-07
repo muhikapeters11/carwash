@@ -104,19 +104,7 @@ function App() {
             credits: snap.credits || [],
             expenses: snap.expenses || [],
             suppliers: snap.suppliers || [],
-            users: snap.users?.length
-              ? (() => {
-                  const current = snap.users.filter((u) => u && u.is_active !== false);
-                  const byId = new Map(current.map((u) => [u.id, u]));
-                  const existing = useAppStore.getState().users;
-                  for (const fallback of existing.filter((u) =>
-                    (u.id === "u-admin" || u.id === "u-cashier") && u.is_active
-                  )) {
-                    if (!byId.has(fallback.id)) byId.set(fallback.id, fallback);
-                  }
-                  return Array.from(byId.values());
-                })()
-              : useAppStore.getState().users,
+            users: snap.users?.length ? snap.users : useAppStore.getState().users,
             stockReceives: snap.stockReceives || [],
             stockAudits: snap.stockAudits || [],
             activityLog: snap.activityLog || [],
@@ -177,36 +165,14 @@ function App() {
       if (cancelled) return;
       setDbReady(true);
 
-      // 3) Keep every device aligned with the latest successful cloud sync.
-      // Polling is intentionally used in addition to product realtime because
-      // sales, stock receives, audits, credits, expenses, suppliers and users
-      // must all converge across separate computers.
-      let sharedSyncTimer: number | undefined;
+      // 3) Re-sync periodically + when tab visible
       if (canCloud) {
-        sharedSyncTimer = window.setInterval(() => {
+        window.setInterval(() => {
           const s = useSyncStore.getState();
           if (navigator.onLine && !s.isSyncing) {
             void s.syncNow({ silent: true });
           }
-        }, 5000);
-
-        const syncWhenVisible = () => {
-          if (document.visibilityState === "visible" && navigator.onLine) {
-            const s = useSyncStore.getState();
-            if (!s.isSyncing) void s.syncNow({ silent: true });
-          }
-        };
-        document.addEventListener("visibilitychange", syncWhenVisible);
-        window.addEventListener("focus", syncWhenVisible);
-        window.addEventListener("pageshow", syncWhenVisible);
-
-        // Store cleanup on the effect scope.
-        (window as any).__barposSharedSyncCleanup = () => {
-          if (sharedSyncTimer) window.clearInterval(sharedSyncTimer);
-          document.removeEventListener("visibilitychange", syncWhenVisible);
-          window.removeEventListener("focus", syncWhenVisible);
-          window.removeEventListener("pageshow", syncWhenVisible);
-        };
+        }, 15000);
       }
     })();
 
@@ -214,8 +180,6 @@ function App() {
       cancelled = true;
       unsubApp?.();
       unsubSync?.();
-      (window as any).__barposSharedSyncCleanup?.();
-      delete (window as any).__barposSharedSyncCleanup;
     };
   }, []);
 

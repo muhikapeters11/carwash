@@ -246,3 +246,21 @@ end $$;
 -- Tables: products, sales, stock_receives, stock_audits,
 --         credit_events, expenses, suppliers, users, app_settings
 -- ============================================================
+
+
+-- Product returns (sync returns across devices)
+create table if not exists product_returns (
+  id text primary key,
+  product_id text,
+  product_name text,
+  quantity integer,
+  amount integer,
+  note text,
+  cashier_id text,
+  cashier_name text,
+  created_at timestamptz
+);
+
+alter table product_returns enable row level security;
+drop policy if exists "anon all product_returns" on product_returns;
+create policy "anon all product_returns" on product_returns for all using (true) with check (true);

@@ -33,18 +33,6 @@ const DEFAULT_CASHIER: User = {
   created_at: new Date().toISOString(),
 };
 
-function ensureDefaultUsers(users: User[] | undefined): User[] {
-  const current = Array.isArray(users) ? users.filter((u) => u && u.is_active !== false) : [];
-  const byId = new Map(current.map((u) => [u.id, u]));
-
-  // Keep the built-in recovery accounts available after local/Dexie/cloud hydration.
-  // Existing accounts with these IDs remain authoritative so custom PIN changes persist.
-  if (!byId.has(DEFAULT_ADMIN.id)) byId.set(DEFAULT_ADMIN.id, DEFAULT_ADMIN);
-  if (!byId.has(DEFAULT_CASHIER.id)) byId.set(DEFAULT_CASHIER.id, DEFAULT_CASHIER);
-
-  return Array.from(byId.values());
-}
-
 const DEFAULT_SETTINGS: AppSettings = {
   business_name: "My Bar",
   business_phone: "",
@@ -109,6 +97,7 @@ interface AppState {
   // Suppliers
   suppliers: Supplier[];
   addSupplier: (s: Omit<Supplier, "id" | "created_at">) => void;
+  deleteSupplier: (id: string) => void;
 
   // Stock
   stockReceives: StockReceive[];
@@ -137,7 +126,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       session: null,
-      users: ensureDefaultUsers([DEFAULT_ADMIN, DEFAULT_CASHIER]),
+      users: [DEFAULT_ADMIN, DEFAULT_CASHIER],
       activeTab: "sell",
       products: [], // empty until cloud/local data — avoids phone showing sample catalog
       cart: [],
@@ -153,11 +142,8 @@ export const useAppStore = create<AppState>()(
       settings: DEFAULT_SETTINGS,
 
       login: (pin) => {
-        const normalizedPin = String(pin ?? "").replace(/\D/g, "").slice(0, 8);
-        const users = ensureDefaultUsers(get().users);
-        if (users.length !== get().users.length) set({ users });
-        const user = users.find(
-          (u) => u.pin === normalizedPin && u.is_active
+        const user = get().users.find(
+          (u) => u.pin === pin && u.is_active
         );
         if (!user) return false;
         const session: SessionUser = {
@@ -232,17 +218,29 @@ export const useAppStore = create<AppState>()(
           updated_at: product.updated_at || new Date().toISOString(),
           ...product,
         };
-        const exists = get().products.some((p) => p.id === normalized.id);
+        const exists = get().products.find((p) => p.id === normalized.id);
         if (exists) {
+          // Do not let stale cloud/realtime wipe a local receive/sale
+          const lt = new Date(exists.updated_at || 0).getTime();
+          const rt = new Date(normalized.updated_at || 0).getTime();
+          const merged =
+            lt >= rt
+              ? {
+                  ...normalized,
+                  ...exists,
+                  stock_quantity: exists.stock_quantity,
+                  cost: exists.cost,
+                  updated_at: exists.updated_at,
+                }
+              : {
+                  ...exists,
+                  ...normalized,
+                  units_per_pack: normalized.units_per_pack ?? exists.units_per_pack ?? 1,
+                  min_stock: normalized.min_stock ?? exists.min_stock ?? 0,
+                };
           set({
             products: get().products.map((p) =>
-              p.id === normalized.id
-                ? {
-                    ...p,
-                    ...normalized,
-                    // Prefer higher stock only if remote is newer — always take remote fields
-                  }
-                : p
+              p.id === normalized.id ? merged : p
             ),
           });
         } else {
@@ -503,7 +501,6 @@ export const useAppStore = create<AppState>()(
         // also push sale line if created for debt paid
         const lastSale = get().sales[0];
         if (lastSale?.is_credit_payment) enqueueSync("sale", lastSale);
-        try { flushDexieSave(get()); } catch { /* ignore */ }
       },
 
 
@@ -536,9 +533,17 @@ export const useAppStore = create<AppState>()(
           products,
         });
         get().logActivity("Product return", items.map((i) => `${i.quantity}× ${i.product_name}`).join(", "));
+        for (const ret of returns) {
+          enqueueSync("product_return", ret);
+        }
         for (const p of products) {
           if (items.some((i) => i.product_id === p.id)) enqueueSync("product_upsert", p);
         }
+        try { flushDexieSave(get()); } catch { /* ignore */ }
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const st = useSyncStore.getState();
+          if (st.isOnline) void st.syncNow({ silent: true });
+        });
       },
 
       addExpense: (description, amount, category) => {
@@ -572,14 +577,37 @@ export const useAppStore = create<AppState>()(
         enqueueSync("supplier_upsert", supplier);
       },
 
+      deleteSupplier: (id) => {
+        const s = get().suppliers.find((x) => x.id === id);
+        set({ suppliers: get().suppliers.filter((x) => x.id !== id) });
+        if (s) get().logActivity("Supplier deleted", s.name);
+        enqueueSync("supplier_delete", { id });
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const st = useSyncStore.getState();
+          if (st.isOnline) void st.syncNow({ silent: true });
+        });
+      },
+
       receiveStock: (productId, quantity, totalCost, supplierName, receiptNo) => {
         const session = get().session;
         const product = get().products.find((p) => p.id === productId);
-        if (!session || !product || quantity <= 0) return;
-        // quantity = number of packs (e.g. barrels); convert to sell units
-        const packSize = product.units_per_pack || 1;
+        if (!session || !product || quantity <= 0 || totalCost < 0) return;
+
+        // quantity = packs if units_per_pack > 1, else sell units
+        const packSize = Math.max(1, product.units_per_pack || 1);
         const unitsAdded = quantity * packSize;
-        const unitCost = Math.round(totalCost / unitsAdded); // cost per cup/sell unit
+        if (unitsAdded <= 0) return;
+        const unitCost =
+          unitsAdded > 0 ? Math.round(totalCost / unitsAdded) : product.cost;
+        const now = new Date().toISOString();
+
+        const updatedProd: Product = {
+          ...product,
+          stock_quantity: product.stock_quantity + unitsAdded,
+          cost: unitCost,
+          updated_at: now,
+        };
+
         const rec: StockReceive = {
           id: uid(),
           product_id: productId,
@@ -591,31 +619,34 @@ export const useAppStore = create<AppState>()(
           receipt_no: receiptNo,
           received_by: session.id,
           received_by_name: session.full_name,
-          created_at: new Date().toISOString(),
+          created_at: now,
           seen_by_admin: session.role === "admin",
         };
+
         set({
           stockReceives: [rec, ...get().stockReceives],
           products: get().products.map((p) =>
-            p.id === productId
-              ? {
-                  ...p,
-                  stock_quantity: p.stock_quantity + unitsAdded,
-                  cost: unitCost,
-                  updated_at: new Date().toISOString(),
-                }
-              : p
+            p.id === productId ? updatedProd : p
           ),
         });
+
         get().logActivity(
           "Stock received",
-          `${product.name}: ${quantity} ${product.pack_label || "pack"}(s) = +${unitsAdded} units`
+          `${product.name}: +${unitsAdded} units (qty ${quantity} × pack ${packSize})`
         );
+
+        // Cloud: receive log + product stock (must use updatedProd, not stale state)
         enqueueSync("stock_receive", rec);
-        // Persist the receipt and new stock immediately so refresh/navigation cannot lose it.
-        try { flushDexieSave(get()); } catch { /* ignore */ }
-        const updatedProd = get().products.find((x) => x.id === productId);
-        if (updatedProd) enqueueSync("product_upsert", updatedProd);
+        enqueueSync("product_upsert", updatedProd);
+        try {
+          flushDexieSave(get());
+        } catch {
+          /* ignore */
+        }
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const st = useSyncStore.getState();
+          if (st.isOnline) void st.syncNow({ silent: true });
+        });
       },
 
       auditStock: (productId, newQty, note) => {
@@ -647,7 +678,6 @@ export const useAppStore = create<AppState>()(
         enqueueSync("stock_audit", audit);
         const audited = get().products.find((x) => x.id === productId);
         if (audited) enqueueSync("product_upsert", audited);
-        try { flushDexieSave(get()); } catch { /* ignore */ }
       },
 
       markReceivesSeen: () => {
@@ -729,20 +759,10 @@ export const useAppStore = create<AppState>()(
           suppliers: [],
           users: [freshAdmin],
           session: null,
-          activeTab: "sell",
           settings: { ...DEFAULT_SETTINGS },
         });
 
-        // 2) Clear persisted Zustand storage as well. Otherwise old tabs/data can reappear on reload.
-        try {
-          const persistApi = (useAppStore as typeof useAppStore & { persist?: { clearStorage?: () => void } }).persist;
-          persistApi?.clearStorage?.();
-          localStorage.removeItem("barpos-v2");
-        } catch (e) {
-          console.warn("[reset] persisted storage clear", e);
-        }
-
-        // 3) Dexie IndexedDB
+        // 2) Dexie IndexedDB
         try {
           const { clearAllBusinessData } = await import("@/db/schema");
           await clearAllBusinessData();
@@ -750,7 +770,7 @@ export const useAppStore = create<AppState>()(
           console.warn("[reset] Dexie clear", e);
         }
 
-        // 4) Sync queue
+        // 3) Sync queue
         try {
           const { useSyncStore } = await import("@/stores/syncStore");
           useSyncStore.setState({ pendingOps: [] });
@@ -758,7 +778,7 @@ export const useAppStore = create<AppState>()(
           console.warn("[reset] sync queue", e);
         }
 
-        // 5) Cloud Supabase — delete products, sales, etc.
+        // 4) Cloud Supabase — delete products, sales, etc.
         let cloudMsg = "Cloud not wiped (offline or not configured).";
         try {
           const { useSyncStore } = await import("@/stores/syncStore");
@@ -774,11 +794,21 @@ export const useAppStore = create<AppState>()(
           cloudMsg = e instanceof Error ? e.message : "Cloud wipe failed";
         }
 
-        // Persist the clean post-reset state so none of the erased tabs/data return after reload.
-        try { flushDexieSave(get()); } catch { /* ignore */ }
+        // 5) Wipe persisted browser storage so refresh cannot restore old tabs
+        try {
+          localStorage.removeItem("barpos-v2");
+          localStorage.removeItem("barpos-sync-v1");
+        } catch { /* ignore */ }
+
+        // 6) Clear Dexie settings row
+        try {
+          const { db } = await import("@/db/schema");
+          await db.settings.clear();
+        } catch { /* ignore */ }
+
         return {
           ok: true,
-          message: `Reset complete. Local business data cleared and ${cloudMsg.toLowerCase()} Login PIN 1234.`,
+          message: `Everything cleared (all tabs + cloud). ${cloudMsg} Login PIN 1234.`,
         };
       },
 

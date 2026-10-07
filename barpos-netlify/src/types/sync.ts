@@ -8,6 +8,8 @@ export type PendingOpType =
   | "product_delete"
   | "expense_delete"
   | "supplier_upsert"
+  | "supplier_delete"
+  | "product_return"
   | "user_upsert"
   | "user_delete"
   | "settings_upsert";
