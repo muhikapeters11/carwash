@@ -18,27 +18,65 @@ export function LoginPage() {
   const [cloudReady, setCloudReady] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Shared data: every device pulls cloud before login when online
+  // When online: pull latest users/PINs from cloud BEFORE allowing login
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+
+    const pullCloudFirst = async () => {
       const s = useSyncStore.getState();
       const online = typeof navigator !== "undefined" && navigator.onLine;
-      if (online && s.cloud?.supabase_url && s.cloud?.supabase_anon_key) {
-        if (!s.cloud.enabled) useSyncStore.getState().setCloud({ enabled: true });
-        try {
-          await Promise.race([
-            useSyncStore.getState().syncNow({ silent: true }),
-            new Promise((r) => setTimeout(r, 15000)),
+      if (!online || !s.cloud?.supabase_url || !s.cloud?.supabase_anon_key) {
+        if (!cancelled) setCloudReady(true);
+        return;
+      }
+      if (!s.cloud.enabled) useSyncStore.getState().setCloud({ enabled: true });
+      try {
+        // Prefer a dedicated users pull so login always sees latest PINs/deletes
+        const { pullAllRemote, applyRemoteSnapshot } = await import("@/lib/sync/pullAll");
+        const { isCloudReady } = await import("@/lib/supabase");
+        const cloud = useSyncStore.getState().cloud;
+        if (isCloudReady(cloud)) {
+          const snap = await Promise.race([
+            pullAllRemote(cloud),
+            new Promise<null>((r) => setTimeout(() => r(null), 12000)),
           ]);
-        } catch {
-          /* offline/local */
+          if (snap && !cancelled) {
+            await applyRemoteSnapshot(
+              snap,
+              () => useAppStore.getState(),
+              (patch) => useAppStore.setState(patch)
+            );
+          }
         }
+        // Also flush any pending local ops (user deletes/adds from this device)
+        await Promise.race([
+          useSyncStore.getState().syncNow({ silent: true }),
+          new Promise((r) => setTimeout(r, 8000)),
+        ]);
+      } catch {
+        /* use local cache */
       }
       if (!cancelled) setCloudReady(true);
-    })();
+    };
+
+    void pullCloudFirst();
+
+    // Re-pull when tab becomes visible or device comes online
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        void pullCloudFirst();
+      }
+    };
+    const onOnline = () => {
+      void pullCloudFirst();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
     };
   }, []);
 
@@ -125,10 +163,13 @@ export function LoginPage() {
   const businessName = settings?.business_name || "Bar POS";
 
   if (!cloudReady) {
+    const online = typeof navigator !== "undefined" && navigator.onLine;
     return (
       <div className="min-h-full flex flex-col items-center justify-center p-6 bg-[var(--bg)]">
         <div className="text-lg font-bold text-[var(--text)] mb-2">{businessName}</div>
-        <div className="text-sm text-[var(--text-muted)]">Loading shared data…</div>
+        <div className="text-sm text-[var(--text-muted)]">
+          {online ? "Syncing latest users from cloud…" : "Loading local data…"}
+        </div>
       </div>
     );
   }
@@ -156,22 +197,22 @@ export function LoginPage() {
             value={pin}
             onChange={() => {}}
             onKeyDown={onPhysicalKey}
-            className="w-48 text-center text-3xl tracking-[0.4em] py-3 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] text-[var(--input-text)] mb-3"
+            className="w-64 max-w-[90vw] text-center text-4xl tracking-[0.5em] py-4 rounded-2xl border-2 border-[var(--border)] bg-[var(--input-bg)] text-[var(--input-text)] mb-4"
             readOnly
             autoComplete="off"
           />
-          {error ? <p className="text-red-500 text-sm mb-2">{error}</p> : null}
-          {msg ? <p className="text-emerald-600 text-sm mb-2">{msg}</p> : null}
+          {error ? <p className="text-red-500 text-base mb-2">{error}</p> : null}
+          {msg ? <p className="text-emerald-600 text-base mb-2">{msg}</p> : null}
 
-          <div className="grid grid-cols-3 gap-3 w-full max-w-xs mt-2">
+          <div className="grid grid-cols-3 gap-4 w-full max-w-md mt-2 px-1">
             {keys.map((k) => (
               <button
                 key={k}
                 type="button"
                 onClick={() => press(k)}
-                className="h-16 rounded-2xl bg-[var(--bg-card)] border border-[var(--border)] text-2xl font-bold text-[var(--text)] active:bg-amber-500 active:text-white touch-manipulation"
+                className="h-20 sm:h-24 min-h-[4.5rem] rounded-2xl bg-[var(--bg-card)] border-2 border-[var(--border)] text-3xl sm:text-4xl font-bold text-[var(--text)] active:bg-amber-500 active:text-white touch-manipulation shadow-sm"
               >
-                {k === "del" ? <Delete className="mx-auto" size={22} /> : k === "ok" ? "OK" : k}
+                {k === "del" ? <Delete className="mx-auto" size={32} /> : k === "ok" ? "OK" : k}
               </button>
             ))}
           </div>

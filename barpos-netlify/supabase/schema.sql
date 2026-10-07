@@ -143,5 +143,29 @@ alter table app_settings enable row level security;
 create policy "anon all app_settings" on app_settings for all using (true) with check (true);
 
 
--- Enable Realtime for live stock/price on other tills
-alter publication supabase_realtime add table products;
+-- Enable Realtime for live multi-device updates (products, users, sales, …)
+-- Safe to re-run: ignore "already member of publication" errors
+do $$ begin
+  alter publication supabase_realtime add table products;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table sales;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table users;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table expenses;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table suppliers;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table stock_receives;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table stock_audits;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table product_returns;
+exception when duplicate_object then null; end $$;

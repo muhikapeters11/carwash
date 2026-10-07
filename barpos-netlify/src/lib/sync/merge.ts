@@ -99,6 +99,12 @@ export function mergeUsers(local: User[], remote: User[]): User[] {
   return mergeUsersCloudFirst(local, remote);
 }
 
+/**
+ * Cloud is the source of truth for the user list when online.
+ * - Remote rows win for shared ids (PIN/role changes from other devices stick).
+ * - Users deleted on another device disappear (not kept from local).
+ * - Local-only users kept only if created very recently (offline add not yet pushed).
+ */
 export function mergeUsersCloudFirst(local: User[], remote: User[]): User[] {
   if (!remote?.length) {
     return (local || []).filter((u) => u.is_active !== false);
@@ -107,6 +113,7 @@ export function mergeUsersCloudFirst(local: User[], remote: User[]): User[] {
   const byId = new Map<string, User>();
   for (const ru of remote) {
     if (!ru?.id) continue;
+    if (ru.is_active === false) continue;
     byId.set(ru.id, {
       is_active: true,
       allowed_tabs: [],
@@ -115,10 +122,17 @@ export function mergeUsersCloudFirst(local: User[], remote: User[]): User[] {
     });
   }
   for (const lu of local || []) {
-    if (!lu?.id) continue;
+    if (!lu?.id || lu.is_active === false) continue;
     const existing = byId.get(lu.id);
     if (!existing) {
-      byId.set(lu.id, lu);
+      const ts = new Date(
+        (lu as User & { updated_at?: string }).updated_at || lu.created_at || 0
+      ).getTime();
+      const age = Date.now() - ts;
+      // Only keep offline-created users not yet on cloud
+      if (ts > 0 && age < 3 * 60 * 1000) {
+        byId.set(lu.id, lu);
+      }
     } else {
       const rt = new Date(
         (existing as User & { updated_at?: string }).updated_at ||

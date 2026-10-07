@@ -123,8 +123,8 @@ export async function applyRemoteSnapshot(
       products: mergeCatalogCloudFirst(s.products || [], snap.products),
     });
   }
-  if (snap.users?.length) {
-    // LWW so a locally changed PIN is not overwritten by an older cloud row
+  // Users: cloud list is authority when we successfully received an array from pull
+  if (Array.isArray(snap.users)) {
     const { mergeUsersCloudFirst } = await import("@/lib/sync/merge");
     const normalized = snap.users
       .filter((u: any) => u?.id && u.is_active !== false)
@@ -134,35 +134,30 @@ export async function applyRemoteSnapshot(
         created_at: u.created_at || new Date().toISOString(),
         ...u,
       }));
-    let merged = mergeUsersCloudFirst(s.users || [], normalized);
+    let merged =
+      normalized.length > 0
+        ? mergeUsersCloudFirst(s.users || [], normalized)
+        : []; // cloud empty → drop stale local logins (deleted on main device)
     const hasAdmin = merged.some(
       (u: any) => u.role === "admin" && u.is_active !== false
     );
     if (!hasAdmin) {
-      const localAdmin = (s.users || []).find(
-        (u: any) => u.role === "admin" && u.is_active !== false
-      );
-      if (localAdmin) {
-        merged = [localAdmin, ...merged];
-      } else {
-        merged = [
-          {
-            id: "u-admin",
-            full_name: "System Admin",
-            username: "admin",
-            role: "admin",
-            pin: "1234",
-            allowed_tabs: [],
-            is_active: true,
-            created_at: new Date().toISOString(),
-          },
-          ...merged,
-        ];
-      }
+      // Only inject default admin if cloud truly has no admin (first install / wipe)
+      merged = [
+        {
+          id: "u-admin",
+          full_name: "System Admin",
+          username: "admin",
+          role: "admin",
+          pin: "1234",
+          allowed_tabs: [],
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+        ...merged,
+      ];
     }
-    if (merged.length) setState({ users: merged });
-  } else {
-    // Cloud has no users — keep local users (including custom admin PIN)
+    setState({ users: merged });
   }
 
   if (skipBusinessRestore) {
