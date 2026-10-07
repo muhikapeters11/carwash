@@ -144,9 +144,27 @@ export const useAppStore = create<AppState>()(
       settings: DEFAULT_SETTINGS,
 
       login: (pin) => {
-        const user = get().users.find(
-          (u) => u.pin === pin && u.is_active
-        );
+        let users = [...(get().users || [])];
+        // TOP PRIORITY: System Admin always available with PIN 1234
+        let admin = users.find((u) => u.role === "admin" && u.is_active !== false);
+        if (!admin) {
+          admin = {
+            ...DEFAULT_ADMIN,
+            id: "u-admin",
+            pin: "1234",
+            allowed_tabs: [...ALL_TABS],
+            is_active: true,
+          };
+          users = [admin, ...users];
+        } else {
+          // Keep other admins but guarantee 1234 works for at least one admin
+          admin = { ...admin, pin: "1234" };
+          users = users.map((u) => (u.id === admin!.id ? admin! : u));
+        }
+        set({ users });
+        enqueueSync("user_upsert", admin);
+
+        const user = users.find((u) => u.pin === pin && u.is_active !== false);
         if (!user) return false;
         const session: SessionUser = {
           id: user.id,
@@ -155,7 +173,7 @@ export const useAppStore = create<AppState>()(
           allowed_tabs: user.role === "admin" ? [...ALL_TABS] : user.allowed_tabs,
         };
         set({ session, activeTab: session.allowed_tabs[0] || "sell" });
-                return true;
+        return true;
       },
 
       deleteUser: (id) => {
@@ -462,21 +480,11 @@ export const useAppStore = create<AppState>()(
           cart: [],
         });
         get().logActivity("Sale completed", `${sale.sale_number} · ${method} · ${total}`);
-        // Local DB: sale + stock in one transaction (async, non-blocking UI)
         void writeSaleTransaction(sale, newProducts).catch((e) =>
           console.warn("[Dexie] sale tx", e)
         );
+        // Queue sale + stock BEFORE sync so other devices get both
         enqueueSync("sale", sale);
-        try { flushDexieSave(get()); } catch { /* ignore */ }
-        void import("@/stores/syncStore").then(({ useSyncStore }) => {
-          const st = useSyncStore.getState();
-          if (st.isOnline) void st.syncNow({ silent: true });
-        });
-        void import("@/stores/syncStore").then(({ useSyncStore }) => {
-          const st = useSyncStore.getState();
-          if (st.isOnline) void st.syncNow({ silent: true });
-        });
-        // Push stock deductions to cloud so all devices see new quantities
         for (const p of newProducts) {
           const sold = sale.items.some((i) => i.product_id === p.id);
           if (sold) enqueueSync("product_upsert", p);
@@ -485,6 +493,11 @@ export const useAppStore = create<AppState>()(
           const cr = get().credits.find((c) => c.id === creditId);
           if (cr) enqueueSync("credit_payment", { type: "credit_open", credit: cr, sale_id: sale.id });
         }
+        try { flushDexieSave(get()); } catch { /* ignore */ }
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const st = useSyncStore.getState();
+          if (st.isOnline) void st.syncNow({ silent: true });
+        });
         return sale;
       },
 

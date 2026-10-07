@@ -113,21 +113,38 @@ export async function applyRemoteSnapshot(
     });
   }
   if (snap.users?.length) {
-    // Shared users/PINs: cloud list is the same on every device
     const normalized = snap.users
       .filter((u: any) => u?.id && u.is_active !== false)
-      .map((u: any) => {
-        const base = {
-          is_active: true,
+      .map((u: any) => ({
+        is_active: true,
+        allowed_tabs: u.allowed_tabs || [],
+        created_at: u.created_at || new Date().toISOString(),
+        ...u,
+      }));
+    // Always keep System Admin with PIN 1234 (cloud often only has cashiers)
+    const hasAdmin1234 = normalized.some(
+      (u: any) => u.role === "admin" && u.pin === "1234" && u.is_active !== false
+    );
+    if (!hasAdmin1234) {
+      const existingAdmin = normalized.find((u: any) => u.role === "admin");
+      if (existingAdmin) {
+        existingAdmin.pin = "1234";
+      } else {
+        normalized.unshift({
+          id: "u-admin",
+          full_name: "System Admin",
+          username: "admin",
+          role: "admin",
+          pin: "1234",
           allowed_tabs: [],
-          created_at: u.created_at || new Date().toISOString(),
-          ...u,
-        };
-        // Ensure system admin default PIN 1234 when role is admin and pin missing
-        if (base.role === "admin" && !base.pin) base.pin = "1234";
-        return base;
-      });
+          is_active: true,
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
     if (normalized.length) setState({ users: normalized });
+  } else {
+    // Cloud has no users — keep local admin 1234
   }
   if (snap.sales?.length) {
     // Union by id so offline sales already pushed are included

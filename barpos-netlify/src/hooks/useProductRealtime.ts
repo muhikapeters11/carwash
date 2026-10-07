@@ -69,18 +69,31 @@ export function useProductRealtime() {
 
         // New sale from another device → add sale AND deduct stock on Sell/Inventory
         let products = state.products;
-        if (
-          sale.status === "completed" &&
-          !sale.is_credit_payment &&
-          sale.items?.length
-        ) {
+        // Deduct stock for any completed sale (cash/mpesa/card/credit)
+        const items = Array.isArray(sale.items)
+          ? sale.items
+          : typeof sale.items === "string"
+            ? (() => {
+                try {
+                  return JSON.parse(sale.items as unknown as string);
+                } catch {
+                  return [];
+                }
+              })()
+            : [];
+        if ((sale.status === "completed" || !sale.status) && items.length) {
           const now = new Date().toISOString();
           products = products.map((p) => {
-            const line = sale.items.find((i) => i.product_id === p.id);
+            const line = items.find(
+              (i: { product_id?: string; quantity?: number }) =>
+                i.product_id === p.id
+            );
             if (!line) return p;
+            const qty = Number(line.quantity) || 0;
+            if (qty <= 0) return p;
             return {
               ...p,
-              stock_quantity: Math.max(0, p.stock_quantity - line.quantity),
+              stock_quantity: Math.max(0, (p.stock_quantity || 0) - qty),
               updated_at: now,
             };
           });
