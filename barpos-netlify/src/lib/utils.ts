@@ -101,18 +101,49 @@ export function formatBusinessDayLabel(now: Date = new Date()): string {
   return `${start.toLocaleString(undefined, opts)} → ${end.toLocaleString(undefined, opts)}`;
 }
 
-/** Group products by required category order, SKU ascending */
+/** Group products by category (all categories), SKU ascending */
 export function groupProductsByCategory(products: Product[]): { category: ProductCategory; label: string; items: Product[] }[] {
   const labels: Record<string, string> = {
     beer: "Beer",
     spirits: "Spirits",
     soft_drinks: "Soft Drinks",
+    wine: "Wine",
+    cocktails: "Cocktails",
+    food: "Food",
+    other: "Other",
   };
-  return SELL_CATEGORY_ORDER.map((cat) => ({
-    category: cat,
-    label: labels[cat] || cat,
-    items: products
-      .filter((p) => p.category === cat && p.is_active)
-      .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true })),
-  })).filter((g) => g.items.length > 0);
+  // Prefer sell order first, then any remaining categories present in the catalog
+  const order: ProductCategory[] = [
+    ...SELL_CATEGORY_ORDER,
+    "wine",
+    "cocktails",
+    "food",
+    "other",
+  ];
+  const seen = new Set<string>();
+  const groups: { category: ProductCategory; label: string; items: Product[] }[] = [];
+  for (const cat of order) {
+    if (seen.has(cat)) continue;
+    seen.add(cat);
+    const items = products
+      .filter((p) => p.category === cat && p.is_active !== false)
+      .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }));
+    if (items.length) {
+      groups.push({ category: cat, label: labels[cat] || cat, items });
+    }
+  }
+  // Catch any unexpected category strings so nothing is hidden
+  for (const p of products) {
+    if (p.is_active === false) continue;
+    const cat = (p.category || "other") as ProductCategory;
+    if (seen.has(cat)) continue;
+    seen.add(cat);
+    const items = products
+      .filter((x) => x.category === cat && x.is_active !== false)
+      .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }));
+    if (items.length) {
+      groups.push({ category: cat, label: labels[cat] || String(cat), items });
+    }
+  }
+  return groups;
 }

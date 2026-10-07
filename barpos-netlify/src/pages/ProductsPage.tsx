@@ -199,8 +199,33 @@ export function ProductsPage() {
         }
         seenInFile.add(skuKey);
 
-        let category = (cols[2] || "other").trim().toLowerCase().replace(/\s+/g, "_") as ProductCategory;
-        if (!validCategories.includes(category)) category = "other";
+        const catRaw = (cols[2] || "other").trim().toLowerCase();
+        const catAliases: Record<string, ProductCategory> = {
+          beer: "beer",
+          beers: "beer",
+          lager: "beer",
+          spirit: "spirits",
+          spirits: "spirits",
+          liquor: "spirits",
+          soft_drinks: "soft_drinks",
+          "soft drinks": "soft_drinks",
+          softdrinks: "soft_drinks",
+          soda: "soft_drinks",
+          soft: "soft_drinks",
+          wine: "wine",
+          wines: "wine",
+          cocktail: "cocktails",
+          cocktails: "cocktails",
+          food: "food",
+          meals: "food",
+          other: "other",
+        };
+        let category: ProductCategory =
+          catAliases[catRaw] ||
+          catAliases[catRaw.replace(/\s+/g, "_")] ||
+          (validCategories.includes(catRaw.replace(/\s+/g, "_") as ProductCategory)
+            ? (catRaw.replace(/\s+/g, "_") as ProductCategory)
+            : "other");
 
         const priceNum = parseFloat((cols[3] || "0").replace(/[^0-9.-]/g, "")) || 0;
         const costNum = parseFloat((cols[4] || "0").replace(/[^0-9.-]/g, "")) || 0;
@@ -347,6 +372,16 @@ export function ProductsPage() {
           </div>
         </div>
       ))}
+
+      {groups.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-[var(--border)] p-8 text-center text-[var(--text-muted)]">
+          <p className="font-medium text-[var(--text)] mb-1">No products to show</p>
+          <p className="text-sm">
+            Add a product or import a CSV. Categories: beer, spirits, soft_drinks, wine, cocktails, food, other.
+          </p>
+          <p className="text-xs mt-2">Total in store: {products.length}</p>
+        </div>
+      )}
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

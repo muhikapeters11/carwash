@@ -161,6 +161,8 @@ export async function applyRemoteSnapshot(
   }
 
   if (skipBusinessRestore) {
+    // After system reset: clear transactional history, but do NOT wipe products
+    // the user may have just re-imported (that caused imports to "disappear").
     setState({
       sales: [],
       expenses: [],
@@ -169,8 +171,6 @@ export async function applyRemoteSnapshot(
       stockReceives: [],
       stockAudits: [],
       heldSales: [],
-      products: [],
-      suppliers: [],
       activityLog: [],
     });
   } else if (Array.isArray(snap.sales)) {
