@@ -236,6 +236,23 @@ export function SettingsPage() {
             className="mt-1 w-full px-3 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] text-[var(--input-text)]"
           />
         </div>
+
+        {session.role === "admin" && (
+          <div>
+            <label className="text-sm font-medium text-[var(--text)]">Admin recovery code</label>
+            <p className="text-xs text-[var(--text-muted)] mb-1">
+              If you forget the admin PIN, use this code on the login screen (Forgot admin PIN?). Keep it private. Synced to cloud.
+            </p>
+            <input
+              type="password"
+              value={form.admin_recovery_code || ""}
+              onChange={(e) => setForm({ ...form, admin_recovery_code: e.target.value.trim() })}
+              placeholder="e.g. my-secret-code"
+              className="mt-1 w-full px-3 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] text-[var(--input-text)]"
+              autoComplete="off"
+            />
+          </div>
+        )}
         <input
           placeholder="Receipt footer"
           value={form.receipt_footer}

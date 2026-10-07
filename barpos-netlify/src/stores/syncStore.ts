@@ -169,11 +169,48 @@ export const useSyncStore = create<SyncState>()(
               pullError = snap.errors.slice(0, 2).join(" · ");
             }
             const { useAppStore } = await import("@/stores/appStore");
-            await applyRemoteSnapshot(
-              snap,
-              () => useAppStore.getState(),
-              (patch) => useAppStore.setState(patch)
-            );
+            const local = useAppStore.getState();
+
+            // Seed cloud once: main till has data, cloud tables empty
+            const seedOps: { type: string; payload: unknown }[] = [];
+            if (!(snap.products?.length) && (local.products?.length || 0) > 0) {
+              for (const prod of local.products) {
+                seedOps.push({ type: "product_upsert", payload: prod });
+              }
+            }
+            if (!(snap.users?.length) && (local.users?.length || 0) > 0) {
+              for (const u of local.users) {
+                seedOps.push({ type: "user_upsert", payload: u });
+              }
+            }
+            if (!(snap.sales?.length) && (local.sales?.length || 0) > 0) {
+              for (const sale of local.sales.slice(0, 200)) {
+                seedOps.push({ type: "sale", payload: sale });
+              }
+            }
+            if (seedOps.length) {
+              for (const op of seedOps) {
+                get().enqueue(op.type as import("@/types/sync").PendingOpType, op.payload);
+              }
+              const again = get().pendingOps.filter(
+                (o) => o.status === "pending" || o.status === "failed"
+              );
+              const { syncedIds: seeded } = await flushQueue(cloud, again);
+              if (seeded.length) get().removeOps(seeded);
+              // Re-pull after seeding so other devices will get the same rows
+              const snap2 = await pullAllRemote(cloud);
+              await applyRemoteSnapshot(
+                snap2,
+                () => useAppStore.getState(),
+                (patch) => useAppStore.setState(patch)
+              );
+            } else {
+              await applyRemoteSnapshot(
+                snap,
+                () => useAppStore.getState(),
+                (patch) => useAppStore.setState(patch)
+              );
+            }
           } catch (e) {
             pullError = e instanceof Error ? e.message : "Pull failed";
           }

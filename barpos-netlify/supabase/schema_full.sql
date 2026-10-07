@@ -1,7 +1,7 @@
 -- ============================================================
 -- BAR POS — FULL SUPABASE SCHEMA (latest)
--- Paste entire script into: Supabase → SQL Editor → Run
--- Safe to re-run (IF NOT EXISTS / DROP POLICY IF EXISTS)
+-- Supabase → SQL Editor → paste all → Run
+-- Safe to re-run
 -- ============================================================
 
 create extension if not exists "pgcrypto";
@@ -24,7 +24,6 @@ create table if not exists products (
   updated_at timestamptz default now(),
   created_at timestamptz default now()
 );
-
 create index if not exists products_updated_at_idx on products (updated_at desc);
 create index if not exists products_category_idx on products (category);
 
@@ -47,7 +46,6 @@ create table if not exists sales (
   created_at timestamptz,
   device_id text
 );
-
 create index if not exists sales_created_at_idx on sales (created_at desc);
 create index if not exists sales_cashier_idx on sales (cashier_id);
 
@@ -66,7 +64,6 @@ create table if not exists stock_receives (
   created_at timestamptz,
   seen_by_admin boolean default false
 );
-
 create index if not exists stock_receives_created_at_idx on stock_receives (created_at desc);
 
 -- -------------------- STOCK AUDITS --------------------
@@ -83,13 +80,22 @@ create table if not exists stock_audits (
   created_at timestamptz,
   seen_by_admin boolean default false
 );
+create index if not exists stock_audits_created_at_idx on stock_audits (created_at desc);
 
 -- -------------------- CREDIT EVENTS --------------------
 create table if not exists credit_events (
-  id text primary key,
-  payload jsonb not null,
-  created_at timestamptz default now()
+  id text primary key default gen_random_uuid()::text,
+  type text,
+  credit_id text,
+  sale_id text,
+  amount integer,
+  method text,
+  customer_name text,
+  payload jsonb,
+  created_at timestamptz default now(),
+  device_id text
 );
+create index if not exists credit_events_created_at_idx on credit_events (created_at desc);
 
 -- -------------------- EXPENSES --------------------
 create table if not exists expenses (
@@ -101,49 +107,62 @@ create table if not exists expenses (
   recorded_by_name text,
   created_at timestamptz
 );
+create index if not exists expenses_created_at_idx on expenses (created_at desc);
 
 -- -------------------- SUPPLIERS --------------------
 create table if not exists suppliers (
   id text primary key,
-  name text,
+  name text not null,
   phone text,
   email text,
   notes text,
   created_at timestamptz
 );
 
--- -------------------- USERS (shared PINs) --------------------
+-- -------------------- USERS --------------------
 create table if not exists users (
   id text primary key,
-  full_name text not null,
+  full_name text,
   username text,
-  role text not null,
-  pin text not null,
+  pin text,
+  role text,
   allowed_tabs jsonb default '[]',
   is_active boolean default true,
   created_at timestamptz,
   updated_at timestamptz
 );
 
-create index if not exists users_pin_idx on users (pin);
-
--- -------------------- APP SETTINGS (single row id = 'app') --------------------
+-- -------------------- APP SETTINGS --------------------
 create table if not exists app_settings (
-  id text primary key,
-  payload jsonb,
-  updated_at timestamptz
+  id text primary key default 'app',
+  payload jsonb not null default '{}',
+  updated_at timestamptz default now()
 );
 
--- -------------------- OPTIONAL: conflict log --------------------
+-- -------------------- PRODUCT RETURNS --------------------
+create table if not exists product_returns (
+  id text primary key,
+  product_id text,
+  product_name text,
+  quantity integer,
+  amount integer,
+  note text,
+  cashier_id text,
+  cashier_name text,
+  created_at timestamptz
+);
+create index if not exists product_returns_created_at_idx on product_returns (created_at desc);
+
+-- -------------------- SYNC CONFLICT LOG --------------------
 create table if not exists sync_conflict_log (
   id bigserial primary key,
-  table_name text not null,
-  record_id text not null,
+  table_name text,
+  record_id text,
   detail jsonb,
   created_at timestamptz default now()
 );
 
--- -------------------- ROW LEVEL SECURITY --------------------
+-- -------------------- RLS --------------------
 alter table products enable row level security;
 alter table sales enable row level security;
 alter table stock_receives enable row level security;
@@ -153,32 +172,43 @@ alter table expenses enable row level security;
 alter table suppliers enable row level security;
 alter table users enable row level security;
 alter table app_settings enable row level security;
+alter table product_returns enable row level security;
 alter table sync_conflict_log enable row level security;
 
--- Open policies for easy multi-device setup (tighten before public internet exposure)
 drop policy if exists "anon all products" on products;
-drop policy if exists "anon all sales" on sales;
-drop policy if exists "anon all stock_receives" on stock_receives;
-drop policy if exists "anon all stock_audits" on stock_audits;
-drop policy if exists "anon all credit_events" on credit_events;
-drop policy if exists "anon all expenses" on expenses;
-drop policy if exists "anon all suppliers" on suppliers;
-drop policy if exists "anon all users" on users;
-drop policy if exists "anon all app_settings" on app_settings;
-drop policy if exists "anon all sync_conflict_log" on sync_conflict_log;
-
 create policy "anon all products" on products for all using (true) with check (true);
+
+drop policy if exists "anon all sales" on sales;
 create policy "anon all sales" on sales for all using (true) with check (true);
+
+drop policy if exists "anon all stock_receives" on stock_receives;
 create policy "anon all stock_receives" on stock_receives for all using (true) with check (true);
+
+drop policy if exists "anon all stock_audits" on stock_audits;
 create policy "anon all stock_audits" on stock_audits for all using (true) with check (true);
+
+drop policy if exists "anon all credit_events" on credit_events;
 create policy "anon all credit_events" on credit_events for all using (true) with check (true);
+
+drop policy if exists "anon all expenses" on expenses;
 create policy "anon all expenses" on expenses for all using (true) with check (true);
+
+drop policy if exists "anon all suppliers" on suppliers;
 create policy "anon all suppliers" on suppliers for all using (true) with check (true);
+
+drop policy if exists "anon all users" on users;
 create policy "anon all users" on users for all using (true) with check (true);
+
+drop policy if exists "anon all app_settings" on app_settings;
 create policy "anon all app_settings" on app_settings for all using (true) with check (true);
+
+drop policy if exists "anon all product_returns" on product_returns;
+create policy "anon all product_returns" on product_returns for all using (true) with check (true);
+
+drop policy if exists "anon all sync_conflict_log" on sync_conflict_log;
 create policy "anon all sync_conflict_log" on sync_conflict_log for all using (true) with check (true);
 
--- -------------------- TRIGGERS (product updated_at + version) --------------------
+-- -------------------- TRIGGERS --------------------
 create or replace function public.set_product_updated_at()
 returns trigger
 language plpgsql
@@ -196,7 +226,6 @@ create trigger products_set_updated_at
   for each row
   execute function public.set_product_updated_at();
 
--- Log large stock jumps (detection only)
 create or replace function public.log_product_stock_jump()
 returns trigger
 language plpgsql
@@ -225,42 +254,49 @@ create trigger products_log_stock_jump
   for each row
   execute function public.log_product_stock_jump();
 
--- -------------------- REALTIME (live product updates) --------------------
--- Ignore error if already added
+-- -------------------- REALTIME --------------------
 do $$
 begin
   alter publication supabase_realtime add table products;
-exception when duplicate_object then
-  null;
+exception when duplicate_object then null;
 end $$;
 
 do $$
 begin
   alter publication supabase_realtime add table sales;
-exception when duplicate_object then
-  null;
+exception when duplicate_object then null;
 end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table users;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table expenses;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table suppliers;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table stock_receives;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table product_returns;
+exception when duplicate_object then null;
+end $$;
+
 
 -- ============================================================
 -- DONE
 -- Tables: products, sales, stock_receives, stock_audits,
---         credit_events, expenses, suppliers, users, app_settings
+--         credit_events, expenses, suppliers, users,
+--         app_settings, product_returns, sync_conflict_log
 -- ============================================================
-
-
--- Product returns (sync returns across devices)
-create table if not exists product_returns (
-  id text primary key,
-  product_id text,
-  product_name text,
-  quantity integer,
-  amount integer,
-  note text,
-  cashier_id text,
-  cashier_name text,
-  created_at timestamptz
-);
-
-alter table product_returns enable row level security;
-drop policy if exists "anon all product_returns" on product_returns;
-create policy "anon all product_returns" on product_returns for all using (true) with check (true);

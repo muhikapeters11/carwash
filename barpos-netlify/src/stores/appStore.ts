@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: "light",
   logo_url: undefined,
   till_number: "",
+  admin_recovery_code: "",
   device_mode: "till",
   preferred_printer: "",
   auto_print_receipt: false,
@@ -56,6 +57,7 @@ interface AppState {
   users: User[];
   login: (pin: string) => boolean;
   deleteUser: (id: string) => void;
+  resetAdminPin: (recoveryCode: string, newPin: string) => { ok: boolean; message: string };
   logout: () => void;
 
   // Navigation
@@ -167,6 +169,50 @@ export const useAppStore = create<AppState>()(
           const s = useSyncStore.getState();
           if (s.isOnline) void s.syncNow({ silent: true });
         });
+      },
+
+      resetAdminPin: (recoveryCode, newPin) => {
+        const code = (recoveryCode || "").trim();
+        const pin = (newPin || "").replace(/\D/g, "");
+        const saved = (get().settings.admin_recovery_code || "").trim();
+        if (!saved) {
+          return {
+            ok: false,
+            message: "No recovery code set. Log in on a device that still works and set one in Settings.",
+          };
+        }
+        if (code !== saved) {
+          return { ok: false, message: "Wrong recovery code" };
+        }
+        if (pin.length < 4) {
+          return { ok: false, message: "New PIN must be at least 4 digits" };
+        }
+        const taken = get().users.some(
+          (u) => u.role !== "admin" && u.pin === pin && u.is_active !== false
+        );
+        if (taken) {
+          return { ok: false, message: "That PIN is used by another user" };
+        }
+        const admins = get().users.filter((u) => u.role === "admin" && u.is_active !== false);
+        if (!admins.length) {
+          return { ok: false, message: "No admin user found" };
+        }
+        const now = new Date().toISOString();
+        const users = get().users.map((u) =>
+          u.role === "admin" && u.is_active !== false
+            ? { ...u, pin, updated_at: now }
+            : u
+        );
+        set({ users });
+        for (const u of users.filter((x) => x.role === "admin")) {
+          enqueueSync("user_upsert", u);
+        }
+        get().logActivity("Admin PIN reset", "via recovery code");
+        void import("@/stores/syncStore").then(({ useSyncStore }) => {
+          const s = useSyncStore.getState();
+          if (s.isOnline) void s.syncNow({ silent: true });
+        });
+        return { ok: true, message: "Admin PIN updated. You can log in now." };
       },
 
       logout: () => {

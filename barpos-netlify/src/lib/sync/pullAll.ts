@@ -113,6 +113,7 @@ export async function applyRemoteSnapshot(
     });
   }
   if (snap.users?.length) {
+    // Shared users/PINs: cloud list is the same on every device
     const normalized = snap.users
       .filter((u: any) => u?.id && u.is_active !== false)
       .map((u: any) => ({

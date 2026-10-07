@@ -211,6 +211,8 @@ export interface AppSettings {
   theme: "light" | "dark";
   logo_url?: string;
   till_number: string;
+  /** Admin-only recovery code to reset forgotten PIN (synced to cloud) */
+  admin_recovery_code?: string;
   /** Device-local preferred printer name (not synced to cloud) */
   preferred_printer?: string;
   auto_print_receipt?: boolean;
