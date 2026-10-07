@@ -103,9 +103,20 @@ export async function applyRemoteSnapshot(
 ) {
   const s = getState();
 
+  // After system reset, do not re-import sales/expenses/etc for a short window
+  let skipBusinessRestore = false;
+  try {
+    const resetAt = Number(localStorage.getItem("barpos-reset-at") || "0");
+    if (resetAt && Date.now() - resetAt < 3 * 60 * 1000) {
+      skipBusinessRestore = true;
+    }
+  } catch {
+    /* ignore */
+  }
+
   // Merge cloud + local (LWW). Never wipe newer local changes on refresh/sync.
   // Other devices still get cloud rows; local pending wins until pushed.
-  if (snap.products?.length) {
+  if (snap.products?.length && !skipBusinessRestore) {
     // Merge LWW so a local stock receive is not wiped by an older cloud row
     const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
     setState({
@@ -113,6 +124,8 @@ export async function applyRemoteSnapshot(
     });
   }
   if (snap.users?.length) {
+    // LWW so a locally changed PIN is not overwritten by an older cloud row
+    const { mergeUsersCloudFirst } = await import("@/lib/sync/merge");
     const normalized = snap.users
       .filter((u: any) => u?.id && u.is_active !== false)
       .map((u: any) => ({
@@ -121,8 +134,8 @@ export async function applyRemoteSnapshot(
         created_at: u.created_at || new Date().toISOString(),
         ...u,
       }));
-    // Ensure an admin exists, but never overwrite an existing admin's PIN
-    const hasAdmin = normalized.some(
+    let merged = mergeUsersCloudFirst(s.users || [], normalized);
+    const hasAdmin = merged.some(
       (u: any) => u.role === "admin" && u.is_active !== false
     );
     if (!hasAdmin) {
@@ -130,27 +143,43 @@ export async function applyRemoteSnapshot(
         (u: any) => u.role === "admin" && u.is_active !== false
       );
       if (localAdmin) {
-        normalized.unshift(localAdmin);
+        merged = [localAdmin, ...merged];
       } else {
-        normalized.unshift({
-          id: "u-admin",
-          full_name: "System Admin",
-          username: "admin",
-          role: "admin",
-          pin: "1234",
-          allowed_tabs: [],
-          is_active: true,
-          created_at: new Date().toISOString(),
-        });
+        merged = [
+          {
+            id: "u-admin",
+            full_name: "System Admin",
+            username: "admin",
+            role: "admin",
+            pin: "1234",
+            allowed_tabs: [],
+            is_active: true,
+            created_at: new Date().toISOString(),
+          },
+          ...merged,
+        ];
       }
     }
-    if (normalized.length) setState({ users: normalized });
+    if (merged.length) setState({ users: merged });
   } else {
     // Cloud has no users — keep local users (including custom admin PIN)
   }
-  if (Array.isArray(snap.sales)) {
+
+  if (skipBusinessRestore) {
+    setState({
+      sales: [],
+      expenses: [],
+      credits: [],
+      productReturns: [],
+      stockReceives: [],
+      stockAudits: [],
+      heldSales: [],
+      products: [],
+      suppliers: [],
+      activityLog: [],
+    });
+  } else if (Array.isArray(snap.sales)) {
     if (snap.sales.length) {
-      // Union by id so offline sales already pushed are included
       const merged = byIdMerge(s.sales || [], snap.sales);
       merged.sort(
         (a, b) =>
@@ -158,56 +187,63 @@ export async function applyRemoteSnapshot(
       );
       setState({ sales: merged });
     } else {
-      // Cloud sales table is empty (e.g. after system reset). Keep only very recent
-      // local offline sales so a wipe clears Dashboard/Reports on every device.
-      const localOnly = (s.sales || []).filter((sale: any) => {
-        const age = Date.now() - new Date(sale.created_at || 0).getTime();
-        return age < 5 * 60 * 1000; // 5 minutes — in-flight offline sales only
-      });
-      setState({ sales: localOnly });
+      // Cloud empty after wipe — clear local history so reports/dashboard stay empty
+      setState({ sales: [] });
     }
   }
-  if (snap.stockReceives?.length) {
+  if (!skipBusinessRestore && snap.stockReceives?.length) {
     setState({
       stockReceives: byIdMerge(s.stockReceives || [], snap.stockReceives),
     });
   }
-  if (snap.stockAudits?.length) {
+  if (!skipBusinessRestore && snap.stockAudits?.length) {
     setState({
       stockAudits: byIdMerge(s.stockAudits || [], snap.stockAudits),
     });
   }
-  if (Array.isArray(snap.expenses)) {
-    const remoteIds = new Set(snap.expenses.map((e: any) => e.id));
-    const localOnly = (s.expenses || []).filter((e: any) => {
-      if (remoteIds.has(e.id)) return false;
-      const age = Date.now() - new Date(e.created_at || 0).getTime();
-      return age < 2 * 24 * 60 * 60 * 1000; // offline-created not yet on cloud
-    });
-    setState({ expenses: [...snap.expenses, ...localOnly] });
+  if (!skipBusinessRestore && Array.isArray(snap.expenses)) {
+    if (snap.expenses.length) {
+      const remoteIds = new Set(snap.expenses.map((e: any) => e.id));
+      const localOnly = (s.expenses || []).filter((e: any) => {
+        if (remoteIds.has(e.id)) return false;
+        const age = Date.now() - new Date(e.created_at || 0).getTime();
+        return age < 2 * 24 * 60 * 60 * 1000;
+      });
+      setState({ expenses: [...snap.expenses, ...localOnly] });
+    } else {
+      setState({ expenses: [] });
+    }
   }
-  if (Array.isArray(snap.suppliers)) {
-    const remoteIds = new Set(snap.suppliers.map((x: any) => x.id));
-    const localOnly = (s.suppliers || []).filter((x: any) => {
-      if (remoteIds.has(x.id)) return false;
-      const age = Date.now() - new Date(x.created_at || 0).getTime();
-      return age < 2 * 24 * 60 * 60 * 1000;
-    });
-    setState({ suppliers: [...snap.suppliers, ...localOnly] });
+  if (!skipBusinessRestore && Array.isArray(snap.suppliers)) {
+    if (snap.suppliers.length) {
+      const remoteIds = new Set(snap.suppliers.map((x: any) => x.id));
+      const localOnly = (s.suppliers || []).filter((x: any) => {
+        if (remoteIds.has(x.id)) return false;
+        const age = Date.now() - new Date(x.created_at || 0).getTime();
+        return age < 2 * 24 * 60 * 60 * 1000;
+      });
+      setState({ suppliers: [...snap.suppliers, ...localOnly] });
+    } else {
+      setState({ suppliers: [] });
+    }
   }
-  if (Array.isArray(snap.productReturns)) {
-    const remoteIds = new Set(snap.productReturns.map((x: any) => x.id));
-    const localOnly = (s.productReturns || []).filter((x: any) => {
-      if (remoteIds.has(x.id)) return false;
-      const age = Date.now() - new Date(x.created_at || 0).getTime();
-      return age < 2 * 24 * 60 * 60 * 1000;
-    });
-    const merged = [...snap.productReturns, ...localOnly];
-    merged.sort(
-      (a: any, b: any) =>
-        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-    );
-    setState({ productReturns: merged });
+  if (!skipBusinessRestore && Array.isArray(snap.productReturns)) {
+    if (snap.productReturns.length) {
+      const remoteIds = new Set(snap.productReturns.map((x: any) => x.id));
+      const localOnly = (s.productReturns || []).filter((x: any) => {
+        if (remoteIds.has(x.id)) return false;
+        const age = Date.now() - new Date(x.created_at || 0).getTime();
+        return age < 2 * 24 * 60 * 60 * 1000;
+      });
+      const merged = [...snap.productReturns, ...localOnly];
+      merged.sort(
+        (a: any, b: any) =>
+          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
+      setState({ productReturns: merged });
+    } else {
+      setState({ productReturns: [] });
+    }
   }
   if (snap.settings && typeof snap.settings === "object") {
     // Keep this device theme + printer preference

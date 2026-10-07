@@ -172,13 +172,20 @@ export const useSyncStore = create<SyncState>()(
             const local = useAppStore.getState();
 
             // Seed cloud once: main till has data, cloud tables empty
+            // Skip seeding right after system reset so reports/dashboard stay empty
+            let skipSeed = false;
+            try {
+              const resetAt = Number(localStorage.getItem("barpos-reset-at") || "0");
+              if (resetAt && Date.now() - resetAt < 3 * 60 * 1000) skipSeed = true;
+            } catch { /* ignore */ }
+
             const seedOps: { type: string; payload: unknown }[] = [];
-            if (!(snap.products?.length) && (local.products?.length || 0) > 0) {
+            if (!skipSeed && !(snap.products?.length) && (local.products?.length || 0) > 0) {
               for (const prod of local.products) {
                 seedOps.push({ type: "product_upsert", payload: prod });
               }
             }
-            if (!(snap.users?.length) && (local.users?.length || 0) > 0) {
+            if (!skipSeed && !(snap.users?.length) && (local.users?.length || 0) > 0) {
               for (const u of local.users) {
                 seedOps.push({ type: "user_upsert", payload: u });
               }

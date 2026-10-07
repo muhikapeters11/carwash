@@ -68,6 +68,10 @@ export function UsersPage() {
         users: users.map((u) => (u.id === editing.id ? updated : u)),
       });
       enqueueSync("user_upsert", updated);
+      // Persist PIN immediately so refresh keeps the new value
+      void import("@/db/bridge").then(({ flushDexieSave }) => {
+        flushDexieSave(useAppStore.getState() as any);
+      });
       void import("@/stores/syncStore").then(({ useSyncStore }) => {
         const s = useSyncStore.getState();
         if (s.isOnline) void s.syncNow({ silent: true });
@@ -92,9 +96,13 @@ export function UsersPage() {
         allowed_tabs: role === "admin" ? [...ALL_TABS] : tabs,
         is_active: true,
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
       useAppStore.setState({ users: [...users, created] });
       enqueueSync("user_upsert", created);
+      void import("@/db/bridge").then(({ flushDexieSave }) => {
+        flushDexieSave(useAppStore.getState() as any);
+      });
       void import("@/stores/syncStore").then(({ useSyncStore }) => {
         const s = useSyncStore.getState();
         if (s.isOnline) void s.syncNow({ silent: true });
@@ -135,16 +143,19 @@ export function UsersPage() {
               >
                 <Pencil size={18} />
               </button>
-              {u.id !== session.id && (
-                <button
-                  onClick={() => {
-                    if (confirm(`Remove ${u.full_name}?`)) deleteUser(u.id);
-                  }}
-                  className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                >
-                  <Trash2 size={18} />
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  const isSelf = u.id === session.id;
+                  const msg = isSelf
+                    ? `Delete yourself (${u.full_name})? You will be logged out.`
+                    : `Remove ${u.full_name}${u.role === "admin" ? " (admin)" : ""}?`;
+                  if (confirm(msg)) deleteUser(u.id);
+                }}
+                className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                title="Delete user"
+              >
+                <Trash2 size={18} />
+              </button>
             </div>
           </div>
         ))}

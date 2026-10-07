@@ -175,14 +175,20 @@ export const useAppStore = create<AppState>()(
       deleteUser: (id) => {
         const session = get().session;
         if (!session || session.role !== "admin") return;
-        if (id === session.id) return; // cannot delete self
+        const target = get().users.find((u) => u.id === id);
+        if (!target) return;
+        // Allow deleting any user including admin and self
         set({ users: get().users.filter((u) => u.id !== id) });
-        get().logActivity("User removed", id);
+        get().logActivity("User removed", `${target.full_name} (${target.role})`);
         enqueueSync("user_delete", { id });
         void import("@/stores/syncStore").then(({ useSyncStore }) => {
           const s = useSyncStore.getState();
           if (s.isOnline) void s.syncNow({ silent: true });
         });
+        // If admin deleted themselves, end the session
+        if (id === session.id) {
+          set({ session: null, cart: [], activeTab: "sell" });
+        }
       },
 
       resetAdminPin: (recoveryCode, newPin) => {
@@ -221,6 +227,9 @@ export const useAppStore = create<AppState>()(
         for (const u of users.filter((x) => x.role === "admin")) {
           enqueueSync("user_upsert", u);
         }
+        void import("@/db/bridge").then(({ flushDexieSave }) => {
+          flushDexieSave(get() as any);
+        });
         get().logActivity("Admin PIN reset", "via recovery code");
         void import("@/stores/syncStore").then(({ useSyncStore }) => {
           const s = useSyncStore.getState();
@@ -799,6 +808,11 @@ export const useAppStore = create<AppState>()(
           created_at: new Date().toISOString(),
         };
 
+        // Mark reset so cloud pull will not re-import sales/reports for ~3 minutes
+        try {
+          localStorage.setItem("barpos-reset-at", String(Date.now()));
+        } catch { /* ignore */ }
+
         // 0) Cancel any pending debounced Dexie write that still holds old sales/etc.
         try {
           const { cancelPendingDexieSave } = await import("@/db/bridge");
@@ -806,34 +820,25 @@ export const useAppStore = create<AppState>()(
         } catch { /* ignore */ }
 
         // 1) Local Zustand — empty products and all business data (dashboard/reports read from here)
-        set({
-          products: [],
-          cart: [],
-          heldSales: [],
-          sales: [],
-          credits: [],
-          productReturns: [],
-          expenses: [],
-          stockReceives: [],
-          stockAudits: [],
-          activityLog: [],
-          suppliers: [],
+        const emptyState = {
+          products: [] as Product[],
+          cart: [] as CartItem[],
+          heldSales: [] as Sale[],
+          sales: [] as Sale[],
+          credits: [] as Credit[],
+          productReturns: [] as ProductReturn[],
+          expenses: [] as Expense[],
+          stockReceives: [] as StockReceive[],
+          stockAudits: [] as StockAudit[],
+          activityLog: [] as ActivityLog[],
+          suppliers: [] as Supplier[],
           users: [freshAdmin],
-          session: null,
+          session: null as SessionUser | null,
           settings: { ...DEFAULT_SETTINGS },
-        });
+        };
+        set(emptyState);
 
-        // 2) Dexie IndexedDB — clear then write empty snapshot so a later timer cannot restore old data
-        try {
-          const { clearAllBusinessData } = await import("@/db/schema");
-          await clearAllBusinessData();
-          const { flushDexieSave } = await import("@/db/bridge");
-          flushDexieSave(get());
-        } catch (e) {
-          console.warn("[reset] Dexie clear", e);
-        }
-
-        // 3) Sync queue
+        // 2) Sync queue first so nothing pushes old rows during wipe
         try {
           const { useSyncStore } = await import("@/stores/syncStore");
           useSyncStore.setState({ pendingOps: [] });
@@ -841,40 +846,68 @@ export const useAppStore = create<AppState>()(
           console.warn("[reset] sync queue", e);
         }
 
-        // 4) Cloud Supabase — delete products, sales, etc.
+        // 3) Cloud Supabase — wipe twice to catch race with concurrent devices
         let cloudMsg = "Cloud not wiped (offline or not configured).";
         try {
           const { useSyncStore } = await import("@/stores/syncStore");
           const { wipeAllCloudTables, isCloudReady } = await import("@/lib/supabase");
           const cloud = useSyncStore.getState().cloud;
           if (isCloudReady(cloud) && navigator.onLine) {
-            const result = await wipeAllCloudTables(cloud);
-            cloudMsg = result.ok
-              ? "Cloud database wiped (including products)."
-              : `Cloud wipe partial: ${result.errors.join("; ")}`;
+            const result1 = await wipeAllCloudTables(cloud);
+            const result2 = await wipeAllCloudTables(cloud);
+            const ok = result1.ok && result2.ok;
+            const errors = [...result1.errors, ...result2.errors];
+            cloudMsg = ok
+              ? "Cloud database wiped (including products & sales)."
+              : `Cloud wipe partial: ${errors.join("; ")}`;
           }
         } catch (e) {
           cloudMsg = e instanceof Error ? e.message : "Cloud wipe failed";
         }
 
-        // 5) Wipe persisted browser storage so refresh cannot restore old tabs
+        // 4) Dexie IndexedDB — full clear + empty snapshot
+        try {
+          const { clearAllBusinessData, db } = await import("@/db/schema");
+          await clearAllBusinessData();
+          await db.settings.clear();
+          await db.meta.clear().catch(() => undefined);
+          const { flushDexieSave, cancelPendingDexieSave } = await import("@/db/bridge");
+          cancelPendingDexieSave();
+          // Re-assert empty in memory before flush (in case a subscription wrote back)
+          set({ ...emptyState, users: [freshAdmin], session: null });
+          flushDexieSave(get());
+        } catch (e) {
+          console.warn("[reset] Dexie clear", e);
+        }
+
+        // 5) Zustand persist storage
+        try {
+          const persister = (useAppStore as unknown as {
+            persist?: { clearStorage?: () => void };
+          }).persist;
+          persister?.clearStorage?.();
+        } catch { /* ignore */ }
         try {
           localStorage.removeItem("barpos-v2");
           localStorage.removeItem("barpos-sync-v1");
         } catch { /* ignore */ }
 
-        // 6) Clear Dexie settings row + re-flush empty state (persist middleware may have rewritten localStorage)
+        // 6) Final in-memory clear so Dashboard/Reports read zeros immediately
+        set({
+          ...emptyState,
+          users: [freshAdmin],
+          session: null,
+        });
+
+        // Keep reset flag; re-write empty persist snapshot then strip key again
         try {
-          const { db } = await import("@/db/schema");
-          await db.settings.clear();
           const { flushDexieSave, cancelPendingDexieSave } = await import("@/db/bridge");
           cancelPendingDexieSave();
           flushDexieSave(get());
         } catch { /* ignore */ }
-
-        // 7) Re-clear Zustand persist key after flush (persist writes on set)
         try {
           localStorage.removeItem("barpos-v2");
+          localStorage.setItem("barpos-reset-at", String(Date.now()));
         } catch { /* ignore */ }
 
         return {
