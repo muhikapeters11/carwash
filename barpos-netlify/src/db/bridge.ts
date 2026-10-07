@@ -196,9 +196,18 @@ export function scheduleDexieSave(state: Parameters<typeof snapshotFromZustand>[
   }, 200);
 }
 
+/** Cancel any pending debounced Dexie write (e.g. before system reset) */
+export function cancelPendingDexieSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+}
+
 /** Immediate write so refresh does not lose the last sale/product change */
 export function flushDexieSave(state: Parameters<typeof snapshotFromZustand>[0]) {
   if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
   ready = true;
   void saveSnapshotToDexie(snapshotFromZustand(state));
 }

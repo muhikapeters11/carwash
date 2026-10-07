@@ -183,11 +183,8 @@ export const useSyncStore = create<SyncState>()(
                 seedOps.push({ type: "user_upsert", payload: u });
               }
             }
-            if (!(snap.sales?.length) && (local.sales?.length || 0) > 0) {
-              for (const sale of local.sales.slice(0, 200)) {
-                seedOps.push({ type: "sale", payload: sale });
-              }
-            }
+            // Do NOT seed historical sales when cloud is empty — that undoes system
+            // reset and re-fills Dashboard/Reports. New sales still push via pending ops.
             if (seedOps.length) {
               for (const op of seedOps) {
                 get().enqueue(op.type as import("@/types/sync").PendingOpType, op.payload);

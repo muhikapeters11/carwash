@@ -20,6 +20,8 @@ export type { SettingsRow, MetaRow, HeldSale, SessionCache } from "./schema";
 export {
   bootstrapLocalDb,
   scheduleDexieSave,
+  cancelPendingDexieSave,
+  flushDexieSave,
   loadSnapshotFromDexie,
   saveSnapshotToDexie,
   syncPendingOpsToDexie,

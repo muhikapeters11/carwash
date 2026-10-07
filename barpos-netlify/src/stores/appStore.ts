@@ -145,7 +145,7 @@ export const useAppStore = create<AppState>()(
 
       login: (pin) => {
         let users = [...(get().users || [])];
-        // TOP PRIORITY: System Admin always available with PIN 1234
+        // Ensure at least one admin exists (do NOT overwrite an existing admin PIN)
         let admin = users.find((u) => u.role === "admin" && u.is_active !== false);
         if (!admin) {
           admin = {
@@ -156,13 +156,9 @@ export const useAppStore = create<AppState>()(
             is_active: true,
           };
           users = [admin, ...users];
-        } else {
-          // Keep other admins but guarantee 1234 works for at least one admin
-          admin = { ...admin, pin: "1234" };
-          users = users.map((u) => (u.id === admin!.id ? admin! : u));
+          set({ users });
+          enqueueSync("user_upsert", admin);
         }
-        set({ users });
-        enqueueSync("user_upsert", admin);
 
         const user = users.find((u) => u.pin === pin && u.is_active !== false);
         if (!user) return false;
@@ -803,7 +799,13 @@ export const useAppStore = create<AppState>()(
           created_at: new Date().toISOString(),
         };
 
-        // 1) Local Zustand — empty products and all business data
+        // 0) Cancel any pending debounced Dexie write that still holds old sales/etc.
+        try {
+          const { cancelPendingDexieSave } = await import("@/db/bridge");
+          cancelPendingDexieSave();
+        } catch { /* ignore */ }
+
+        // 1) Local Zustand — empty products and all business data (dashboard/reports read from here)
         set({
           products: [],
           cart: [],
@@ -821,10 +823,12 @@ export const useAppStore = create<AppState>()(
           settings: { ...DEFAULT_SETTINGS },
         });
 
-        // 2) Dexie IndexedDB
+        // 2) Dexie IndexedDB — clear then write empty snapshot so a later timer cannot restore old data
         try {
           const { clearAllBusinessData } = await import("@/db/schema");
           await clearAllBusinessData();
+          const { flushDexieSave } = await import("@/db/bridge");
+          flushDexieSave(get());
         } catch (e) {
           console.warn("[reset] Dexie clear", e);
         }
@@ -859,10 +863,18 @@ export const useAppStore = create<AppState>()(
           localStorage.removeItem("barpos-sync-v1");
         } catch { /* ignore */ }
 
-        // 6) Clear Dexie settings row
+        // 6) Clear Dexie settings row + re-flush empty state (persist middleware may have rewritten localStorage)
         try {
           const { db } = await import("@/db/schema");
           await db.settings.clear();
+          const { flushDexieSave, cancelPendingDexieSave } = await import("@/db/bridge");
+          cancelPendingDexieSave();
+          flushDexieSave(get());
+        } catch { /* ignore */ }
+
+        // 7) Re-clear Zustand persist key after flush (persist writes on set)
+        try {
+          localStorage.removeItem("barpos-v2");
         } catch { /* ignore */ }
 
         return {

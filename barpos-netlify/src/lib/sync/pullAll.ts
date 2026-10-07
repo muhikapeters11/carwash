@@ -121,14 +121,16 @@ export async function applyRemoteSnapshot(
         created_at: u.created_at || new Date().toISOString(),
         ...u,
       }));
-    // Always keep System Admin with PIN 1234 (cloud often only has cashiers)
-    const hasAdmin1234 = normalized.some(
-      (u: any) => u.role === "admin" && u.pin === "1234" && u.is_active !== false
+    // Ensure an admin exists, but never overwrite an existing admin's PIN
+    const hasAdmin = normalized.some(
+      (u: any) => u.role === "admin" && u.is_active !== false
     );
-    if (!hasAdmin1234) {
-      const existingAdmin = normalized.find((u: any) => u.role === "admin");
-      if (existingAdmin) {
-        existingAdmin.pin = "1234";
+    if (!hasAdmin) {
+      const localAdmin = (s.users || []).find(
+        (u: any) => u.role === "admin" && u.is_active !== false
+      );
+      if (localAdmin) {
+        normalized.unshift(localAdmin);
       } else {
         normalized.unshift({
           id: "u-admin",
@@ -144,16 +146,26 @@ export async function applyRemoteSnapshot(
     }
     if (normalized.length) setState({ users: normalized });
   } else {
-    // Cloud has no users — keep local admin 1234
+    // Cloud has no users — keep local users (including custom admin PIN)
   }
-  if (snap.sales?.length) {
-    // Union by id so offline sales already pushed are included
-    const merged = byIdMerge(s.sales || [], snap.sales);
-    merged.sort(
-      (a, b) =>
-        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-    );
-    setState({ sales: merged });
+  if (Array.isArray(snap.sales)) {
+    if (snap.sales.length) {
+      // Union by id so offline sales already pushed are included
+      const merged = byIdMerge(s.sales || [], snap.sales);
+      merged.sort(
+        (a, b) =>
+          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
+      setState({ sales: merged });
+    } else {
+      // Cloud sales table is empty (e.g. after system reset). Keep only very recent
+      // local offline sales so a wipe clears Dashboard/Reports on every device.
+      const localOnly = (s.sales || []).filter((sale: any) => {
+        const age = Date.now() - new Date(sale.created_at || 0).getTime();
+        return age < 5 * 60 * 1000; // 5 minutes — in-flight offline sales only
+      });
+      setState({ sales: localOnly });
+    }
   }
   if (snap.stockReceives?.length) {
     setState({
