@@ -145,5 +145,15 @@ alter table app_settings enable row level security;
 create policy "anon all app_settings" on app_settings for all using (true) with check (true);
 
 
--- Enable Realtime for live stock/price on other tills
+-- Enable Realtime so every till sees changes immediately
+-- (If a table is already in the publication, Supabase ignores the duplicate.)
 alter publication supabase_realtime add table products;
+alter publication supabase_realtime add table sales;
+alter publication supabase_realtime add table stock_receives;
+alter publication supabase_realtime add table stock_audits;
+alter publication supabase_realtime add table expenses;
+alter publication supabase_realtime add table users;
+alter publication supabase_realtime add table product_returns;
+alter publication supabase_realtime add table suppliers;
+alter publication supabase_realtime add table credit_events;
+alter publication supabase_realtime add table app_settings;

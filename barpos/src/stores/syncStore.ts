@@ -37,7 +37,7 @@ function scheduleBackgroundSync() {
     if (s.isOnline && isCloudReady(s.cloud) && !s.isSyncing) {
       void s.syncNow({ silent: true });
     }
-  }, 120);
+  }, 50);
 }
 
 export const useSyncStore = create<SyncState>()(

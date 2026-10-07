@@ -241,24 +241,36 @@ create trigger products_log_stock_jump
   for each row
   execute function public.log_product_stock_jump();
 
--- -------------------- REALTIME (live product updates) --------------------
--- Ignore error if already added
+-- -------------------- REALTIME (live multi-device updates) --------------------
+-- Ignore error if a table is already in the publication
 do $$
+declare
+  t text;
 begin
-  alter publication supabase_realtime add table products;
-exception when duplicate_object then
-  null;
-end $$;
-
-do $$
-begin
-  alter publication supabase_realtime add table sales;
-exception when duplicate_object then
-  null;
+  foreach t in array array[
+    'products',
+    'sales',
+    'stock_receives',
+    'stock_audits',
+    'expenses',
+    'users',
+    'product_returns',
+    'suppliers',
+    'credit_events',
+    'app_settings'
+  ]
+  loop
+    begin
+      execute format('alter publication supabase_realtime add table %I', t);
+    exception when duplicate_object then
+      null;
+    end;
+  end loop;
 end $$;
 
 -- ============================================================
 -- DONE
 -- Tables: products, sales, stock_receives, stock_audits,
 --         credit_events, expenses, suppliers, users, app_settings
+-- Realtime publication includes all of the above for multi-till live sync
 -- ============================================================
