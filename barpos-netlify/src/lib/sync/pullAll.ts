@@ -116,12 +116,17 @@ export async function applyRemoteSnapshot(
     // Shared users/PINs: cloud list is the same on every device
     const normalized = snap.users
       .filter((u: any) => u?.id && u.is_active !== false)
-      .map((u: any) => ({
-        is_active: true,
-        allowed_tabs: [],
-        created_at: u.created_at || new Date().toISOString(),
-        ...u,
-      }));
+      .map((u: any) => {
+        const base = {
+          is_active: true,
+          allowed_tabs: [],
+          created_at: u.created_at || new Date().toISOString(),
+          ...u,
+        };
+        // Ensure system admin default PIN 1234 when role is admin and pin missing
+        if (base.role === "admin" && !base.pin) base.pin = "1234";
+        return base;
+      });
     if (normalized.length) setState({ users: normalized });
   }
   if (snap.sales?.length) {

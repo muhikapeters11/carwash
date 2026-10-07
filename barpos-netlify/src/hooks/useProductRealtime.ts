@@ -3,9 +3,10 @@ import { useSyncStore } from "@/stores/syncStore";
 import { useAppStore } from "@/stores/appStore";
 import { isCloudReady } from "@/lib/supabase";
 import { startProductRealtime, stopProductRealtime } from "@/lib/realtime";
+import type { Product } from "@/types";
 
 /**
- * Live shared data from Supabase Realtime (products, sales, users, etc.)
+ * Live shared data — sales + stock so Sell/Inventory match across devices
  */
 export function useProductRealtime() {
   const isOnline = useSyncStore((s) => s.isOnline);
@@ -27,24 +28,73 @@ export function useProductRealtime() {
           useAppStore.setState({ products });
           return;
         }
-        useAppStore.getState().mergeRemoteProduct(product);
+        // Cloud product row is source of truth for stock on other devices
+        const products = useAppStore.getState().products;
+        const exists = products.find((p) => p.id === product.id);
+        if (!exists) {
+          useAppStore.setState({ products: [...products, product] });
+          return;
+        }
+        const lt = new Date(exists.updated_at || 0).getTime();
+        const rt = new Date(product.updated_at || 0).getTime();
+        // Prefer remote stock when remote is same age or newer (multi-device stock)
+        const merged: Product =
+          rt >= lt
+            ? {
+                ...exists,
+                ...product,
+                stock_quantity: product.stock_quantity,
+                cost: product.cost ?? exists.cost,
+                updated_at: product.updated_at || exists.updated_at,
+                units_per_pack: product.units_per_pack ?? exists.units_per_pack ?? 1,
+                min_stock: product.min_stock ?? exists.min_stock ?? 0,
+              }
+            : exists;
+        useAppStore.setState({
+          products: products.map((p) => (p.id === product.id ? merged : p)),
+        });
       },
+
       onSale: (sale, event) => {
         if (event === "DELETE") return;
-        const sales = useAppStore.getState().sales;
-        if (sales.some((s) => s.id === sale.id)) {
+        const state = useAppStore.getState();
+        const already = state.sales.some((s) => s.id === sale.id);
+
+        if (already) {
           useAppStore.setState({
-            sales: sales.map((s) => (s.id === sale.id ? sale : s)),
+            sales: state.sales.map((s) => (s.id === sale.id ? sale : s)),
           });
-        } else {
-          useAppStore.setState({
-            sales: [sale, ...sales].sort(
-              (a, b) =>
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            ),
+          return;
+        }
+
+        // New sale from another device → add sale AND deduct stock on Sell/Inventory
+        let products = state.products;
+        if (
+          sale.status === "completed" &&
+          !sale.is_credit_payment &&
+          sale.items?.length
+        ) {
+          const now = new Date().toISOString();
+          products = products.map((p) => {
+            const line = sale.items.find((i) => i.product_id === p.id);
+            if (!line) return p;
+            return {
+              ...p,
+              stock_quantity: Math.max(0, p.stock_quantity - line.quantity),
+              updated_at: now,
+            };
           });
         }
+
+        useAppStore.setState({
+          sales: [sale, ...state.sales].sort(
+            (a, b) =>
+              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          ),
+          products,
+        });
       },
+
       onUser: (user, event) => {
         if (event === "DELETE") {
           useAppStore.setState({
@@ -61,6 +111,7 @@ export function useProductRealtime() {
           useAppStore.setState({ users: [...users, user] });
         }
       },
+
       onExpense: (row, event) => {
         if (event === "DELETE") {
           useAppStore.setState({
@@ -77,6 +128,7 @@ export function useProductRealtime() {
           useAppStore.setState({ expenses: [row, ...list] });
         }
       },
+
       onSupplier: (row, event) => {
         if (event === "DELETE") {
           useAppStore.setState({
@@ -93,41 +145,110 @@ export function useProductRealtime() {
           useAppStore.setState({ suppliers: [...list, row] });
         }
       },
+
       onStockReceive: (row, event) => {
         if (event === "DELETE") return;
-        const list = useAppStore.getState().stockReceives;
-        if (list.some((r) => r.id === row.id)) return;
-        useAppStore.setState({ stockReceives: [row, ...list] });
+        const state = useAppStore.getState();
+        if (state.stockReceives.some((r) => r.id === row.id)) return;
+
+        // Another device received stock → add log + increase product qty
+        const now = new Date().toISOString();
+        const products = state.products.map((p) =>
+          p.id === row.product_id
+            ? {
+                ...p,
+                stock_quantity: p.stock_quantity + (row.quantity || 0),
+                cost: row.unit_cost || p.cost,
+                updated_at: now,
+              }
+            : p
+        );
+
+        useAppStore.setState({
+          stockReceives: [row, ...state.stockReceives],
+          products,
+        });
       },
+
+      onStockAudit: (row, event) => {
+        if (event === "DELETE") return;
+        const id = String(row.id || "");
+        if (!id) return;
+        const state = useAppStore.getState();
+        if (state.stockAudits.some((a) => a.id === id)) return;
+
+        const productId = String(row.product_id || "");
+        const newQty = Number(row.new_qty) || 0;
+        const now = new Date().toISOString();
+        const products = state.products.map((p) =>
+          p.id === productId
+            ? { ...p, stock_quantity: newQty, updated_at: now }
+            : p
+        );
+        const audit = {
+          id,
+          product_id: productId,
+          product_name: String(row.product_name || ""),
+          previous_qty: Number(row.previous_qty) || 0,
+          new_qty: newQty,
+          difference: Number(row.difference) || 0,
+          audited_by: String(row.audited_by || ""),
+          audited_by_name: String(row.audited_by_name || ""),
+          note: (row.note as string) || undefined,
+          created_at: String(row.created_at || now),
+          seen_by_admin: !!row.seen_by_admin,
+        };
+        useAppStore.setState({
+          stockAudits: [audit, ...state.stockAudits],
+          products,
+        });
+      },
+
       onProductReturn: (row, event) => {
         if (event === "DELETE") return;
         const id = String(row.id || "");
         if (!id) return;
-        const list = useAppStore.getState().productReturns || [];
-        if (list.some((r) => r.id === id)) return;
+        const state = useAppStore.getState();
+        if ((state.productReturns || []).some((r) => r.id === id)) return;
+
+        const qty = Number(row.quantity) || 0;
+        const productId = String(row.product_id || "");
+        const now = new Date().toISOString();
+        const products = state.products.map((p) =>
+          p.id === productId
+            ? {
+                ...p,
+                stock_quantity: p.stock_quantity + qty,
+                updated_at: now,
+              }
+            : p
+        );
+
         useAppStore.setState({
           productReturns: [
             {
               id,
-              product_id: String(row.product_id || ""),
+              product_id: productId,
               product_name: String(row.product_name || ""),
-              quantity: Number(row.quantity) || 0,
+              quantity: qty,
               amount: Number(row.amount) || 0,
               note: (row.note as string) || undefined,
               cashier_id: String(row.cashier_id || ""),
               cashier_name: String(row.cashier_name || ""),
-              created_at: String(row.created_at || new Date().toISOString()),
+              created_at: String(row.created_at || now),
             },
-            ...list,
+            ...(state.productReturns || []),
           ],
+          products,
         });
       },
+
       onStatus: (status, detail) => {
         if (status === "live") {
           setCloud({ last_sync_error: undefined });
         } else if (status === "error") {
           setCloud({
-            last_sync_error: `Live sync: ${detail || "error"} — enable Replication for tables in Supabase`,
+            last_sync_error: `Live sync: ${detail || "error"} — enable Replication in Supabase`,
           });
         }
       },

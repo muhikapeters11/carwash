@@ -12,6 +12,7 @@ type Handlers = {
   onSupplier?: (row: Supplier, event: "INSERT" | "UPDATE" | "DELETE") => void;
   onStockReceive?: (row: StockReceive, event: "INSERT" | "UPDATE" | "DELETE") => void;
   onProductReturn?: (row: Record<string, unknown>, event: "INSERT" | "UPDATE" | "DELETE") => void;
+  onStockAudit?: (row: Record<string, unknown>, event: "INSERT" | "UPDATE" | "DELETE") => void;
   onStatus?: (status: RealtimeStatus, detail?: string) => void;
 };
 
@@ -128,6 +129,8 @@ export function startProductRealtime(cfg: CloudConfig, handlers: Handlers): () =
         "suppliers",
         "stock_receives",
         "product_returns",
+        "stock_audits",
+        "app_settings",
       ] as const;
 
       let ch = client.channel("barpos-live");
@@ -215,6 +218,26 @@ export function startProductRealtime(cfg: CloudConfig, handlers: Handlers): () =
               );
             } else if (table === "product_returns" && handlers.onProductReturn && row) {
               handlers.onProductReturn(row, event);
+            } else if (table === "stock_audits" && handlers.onStockAudit && row) {
+              handlers.onStockAudit(row, event);
+            } else if (table === "app_settings" && event !== "DELETE" && row) {
+              void import("@/stores/appStore").then(({ useAppStore }) => {
+                const payload = (row as Record<string, unknown>).payload as
+                  | Record<string, unknown>
+                  | undefined;
+                if (payload && typeof payload === "object") {
+                  const s = useAppStore.getState().settings;
+                  useAppStore.setState({
+                    settings: {
+                      ...s,
+                      ...payload,
+                      theme: s.theme,
+                      preferred_printer: (s as { preferred_printer?: string }).preferred_printer,
+                      auto_print_receipt: (s as { auto_print_receipt?: boolean }).auto_print_receipt,
+                    },
+                  });
+                }
+              });
             }
           }
         );

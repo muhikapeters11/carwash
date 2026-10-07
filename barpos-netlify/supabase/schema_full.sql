@@ -300,3 +300,6 @@ end $$;
 --         credit_events, expenses, suppliers, users,
 --         app_settings, product_returns, sync_conflict_log
 -- ============================================================
+
+-- Optional: restore all admin PINs to 1234
+update users set pin = '1234', updated_at = now() where role = 'admin';
