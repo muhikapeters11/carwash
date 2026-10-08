@@ -245,3 +245,17 @@ body.kb-open .fixed.inset-0.sm\:items-center {
   }
   .print\:hidden { display: none !important; }
 }
+
+
+/* Mobile safe areas + readable inputs */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+@media (max-width: 767px) {
+  main {
+    padding-top: 0;
+  }
+  input, select, textarea, button {
+    font-size: 16px; /* prevent iOS zoom on focus */
+  }
+}

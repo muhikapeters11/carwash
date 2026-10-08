@@ -34,16 +34,50 @@ const PROJECT_DEFAULTS = {
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let intervalId: ReturnType<typeof setInterval> | null = null;
+/** When isSyncing was set true — used to unlock a hung sync */
+let syncStartedAt = 0;
+const SYNC_WATCHDOG_MS = 45_000;
+
+function clearStuckSyncFlag() {
+  const s = useSyncStore.getState();
+  if (s.isSyncing && syncStartedAt && Date.now() - syncStartedAt > SYNC_WATCHDOG_MS) {
+    console.warn("[sync] clearing stuck isSyncing flag");
+    useSyncStore.setState({ isSyncing: false });
+    syncStartedAt = 0;
+  }
+}
 
 /** Online dual-write: push pending ops to cloud quickly (silent) */
 function scheduleBackgroundSync() {
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
+    clearStuckSyncFlag();
     const s = useSyncStore.getState();
-    if (s.isOnline && isCloudReady(s.cloud) && !s.isSyncing) {
+    const online = typeof navigator !== "undefined" ? navigator.onLine : s.isOnline;
+    if (online !== s.isOnline) s.setOnline(online);
+    if (online && isCloudReady(s.cloud) && !useSyncStore.getState().isSyncing) {
       void s.syncNow({ silent: true });
     }
   }, 120);
+}
+
+/** Force a full pull+push (used on focus / login / mobile resume) */
+export function forceCloudSync(opts?: { silent?: boolean }) {
+  clearStuckSyncFlag();
+  const s = useSyncStore.getState();
+  const online = typeof navigator !== "undefined" ? navigator.onLine : true;
+  if (online !== s.isOnline) s.setOnline(online);
+  if (!online) return Promise.resolve({ ok: false, message: "Offline" });
+  if (!isCloudReady(s.cloud)) {
+    // Ensure defaults / enabled
+    s.setCloud({ enabled: true });
+  }
+  // If still marked syncing after watchdog clear, force unlock
+  if (useSyncStore.getState().isSyncing) {
+    useSyncStore.setState({ isSyncing: false });
+    syncStartedAt = 0;
+  }
+  return useSyncStore.getState().syncNow({ silent: opts?.silent !== false });
 }
 
 export const useSyncStore = create<SyncState>()(
@@ -112,29 +146,50 @@ export const useSyncStore = create<SyncState>()(
 
       syncNow: async (opts) => {
         const isSilent = opts?.silent === true;
-        const { cloud, pendingOps, isOnline } = get();
+        const { cloud, pendingOps } = get();
 
-        if (!isOnline) {
+        // Always trust the browser online flag (fixes stale isOnline after hours)
+        const navOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
+        if (navOnline !== get().isOnline) set({ isOnline: navOnline });
+        if (!navOnline) {
           const message = "Device is offline — will sync when online";
           if (!isSilent) {
-            set({ cloud: { ...cloud, last_sync_error: message } });
+            set({ cloud: { ...get().cloud, last_sync_error: message } });
           }
           return { ok: false, message };
         }
         if (!isCloudReady(cloud)) {
-          const message = "Cloud not configured. Add Supabase URL + key in Settings.";
-          return { ok: false, message };
+          // Re-enable defaults if config was cleared
+          set({
+            cloud: {
+              ...cloud,
+              enabled: true,
+              supabase_url: cloud.supabase_url || "https://neuducaticwvhqwfsept.supabase.co",
+            },
+          });
+          if (!isCloudReady(get().cloud)) {
+            const message = "Cloud not configured. Add Supabase URL + key in Settings.";
+            return { ok: false, message };
+          }
         }
+        // Unlock hung sync (e.g. tab slept mid-request)
         if (get().isSyncing) {
-          return { ok: false, message: "Sync already in progress" };
+          if (syncStartedAt && Date.now() - syncStartedAt > SYNC_WATCHDOG_MS) {
+            set({ isSyncing: false });
+            syncStartedAt = 0;
+          } else {
+            return { ok: false, message: "Sync already in progress" };
+          }
         }
 
         set({ isSyncing: true });
+        syncStartedAt = Date.now();
         try {
           const reachable = await probeCloud(cloud);
           if (!reachable) {
             const message =
               "Cannot reach Supabase. Check internet, URL, or project status.";
+            syncStartedAt = 0;
             set({
               isSyncing: false,
               lastFailureDetail: message,
@@ -225,6 +280,7 @@ export const useSyncStore = create<SyncState>()(
             pullError ||
             (failed.length ? `${failed.length} op(s) failed` : undefined);
 
+          syncStartedAt = 0;
           set({
             isSyncing: false,
             lastFailureDetail: detail,
@@ -265,6 +321,7 @@ export const useSyncStore = create<SyncState>()(
           return { ok: failed.length === 0 && !pullError, message };
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Sync failed";
+          syncStartedAt = 0;
           set({
             isSyncing: false,
             lastFailureDetail: msg,
@@ -313,18 +370,29 @@ if (typeof window !== "undefined") {
     useSyncStore.getState().setOnline(false);
   });
 
+  // Always push+pull while online so other devices keep latest data (not only when queue has ops)
   if (!intervalId) {
     intervalId = setInterval(() => {
+      clearStuckSyncFlag();
       const s = useSyncStore.getState();
-      if (
-        s.isOnline &&
-        isCloudReady(s.cloud) &&
-        s.pendingOps.some((o) => o.status === "pending" || o.status === "failed")
-      ) {
-        void s.syncNow({ silent: true });
+      const online = typeof navigator !== "undefined" ? navigator.onLine : s.isOnline;
+      if (online !== s.isOnline) s.setOnline(online);
+      if (online && isCloudReady(s.cloud)) {
+        void forceCloudSync({ silent: true });
       }
-    }, 20000);
+    }, 15000);
   }
+
+  // Mobile browsers freeze timers in background — sync hard on resume
+  const resumeSync = () => {
+    if (document.visibilityState && document.visibilityState !== "visible") return;
+    void forceCloudSync({ silent: true });
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") resumeSync();
+  });
+  window.addEventListener("focus", resumeSync);
+  window.addEventListener("pageshow", resumeSync);
 }
 
 export function enqueueSync(type: PendingOpType, payload: unknown) {

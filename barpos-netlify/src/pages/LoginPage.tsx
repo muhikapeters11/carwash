@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppStore } from "@/stores/appStore";
-import { useSyncStore } from "@/stores/syncStore";
+import { useSyncStore, forceCloudSync } from "@/stores/syncStore";
 import { Delete } from "lucide-react";
 
 export function LoginPage() {
@@ -50,7 +50,7 @@ export function LoginPage() {
         }
         // Also flush any pending local ops (user deletes/adds from this device)
         await Promise.race([
-          useSyncStore.getState().syncNow({ silent: true }),
+          forceCloudSync({ silent: true }),
           new Promise((r) => setTimeout(r, 8000)),
         ]);
       } catch {

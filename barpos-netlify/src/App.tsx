@@ -25,7 +25,7 @@ import {
   syncPendingOpsToDexie,
   loadPendingOpsFromDexie,
 } from "@/db";
-import { useSyncStore } from "@/stores/syncStore";
+import { useSyncStore, forceCloudSync } from "@/stores/syncStore";
 
 const IDLE_MS = 5 * 60 * 1000;
 
@@ -92,26 +92,12 @@ function App() {
         console.warn("[hydrate]", e);
       }
 
-      // 1) Load local cache (offline backup)
+      const online = typeof navigator !== "undefined" && navigator.onLine;
+
+      // Open local DB + load pending ops (always) — but do NOT apply local catalog
+      // as the source of truth when online; cloud wins so every device sees last sync.
       try {
-        const snap = await bootstrapLocalDb();
-        if (cancelled) return;
-        if (snap) {
-          useAppStore.setState({
-            products: snap.products?.length ? snap.products : useAppStore.getState().products,
-            sales: snap.sales || [],
-            heldSales: snap.heldSales || [],
-            credits: snap.credits || [],
-            expenses: snap.expenses || [],
-            suppliers: snap.suppliers || [],
-            users: snap.users?.length ? snap.users : useAppStore.getState().users,
-            stockReceives: snap.stockReceives || [],
-            stockAudits: snap.stockAudits || [],
-            activityLog: snap.activityLog || [],
-            cart: snap.cart || [],
-            ...(snap.settings ? { settings: snap.settings } : {}),
-          });
-        }
+        await bootstrapLocalDb();
         const ops = await loadPendingOpsFromDexie();
         if (!cancelled && ops.length) {
           useSyncStore.setState({ pendingOps: ops });
@@ -123,57 +109,96 @@ function App() {
       if (cancelled) return;
 
       unsubApp = useAppStore.subscribe((state) => {
-        // Local DB always updated; debounced write
         scheduleDexieSave(state);
       });
       unsubSync = useSyncStore.subscribe((s) => {
         void syncPendingOpsToDexie(s.pendingOps);
       });
 
-      // 2) ALWAYS load from cloud first when the device has internet
-      const online = typeof navigator !== "undefined" && navigator.onLine;
-      const cloud = useSyncStore.getState().cloud;
-      const canCloud =
-        online &&
-        !!(cloud?.supabase_url && cloud?.supabase_anon_key);
-
-      if (canCloud) {
-        // Ensure enabled so sync runs
-        if (!cloud.enabled) {
-          useSyncStore.getState().setCloud({ enabled: true });
-        }
+      if (online) {
+        // CLOUD FIRST: pull latest shared data before showing the app
+        useSyncStore.getState().setOnline(true);
+        useSyncStore.getState().setCloud({ enabled: true });
         try {
           const result = await Promise.race([
-            useSyncStore.getState().syncNow({ silent: true }),
+            forceCloudSync({ silent: true }),
             new Promise<{ ok: boolean; message: string }>((resolve) =>
               setTimeout(
                 () =>
                   resolve({
                     ok: false,
-                    message: "Cloud sync timed out — using last local copy",
+                    message: "Cloud sync timed out — will use local cache",
                   }),
-                20000
+                25000
               )
             ),
           ]);
-          console.info("[boot cloud]", result.message);
+          console.info("[boot cloud-first]", result.message);
+          // If cloud failed, fall back to local Dexie snapshot
+          if (!result.ok) {
+            const { loadSnapshotFromDexie } = await import("@/db/bridge");
+            const snap = await loadSnapshotFromDexie();
+            if (snap && !cancelled) {
+              useAppStore.setState({
+                products: snap.products?.length ? snap.products : useAppStore.getState().products,
+                sales: snap.sales || useAppStore.getState().sales,
+                heldSales: snap.heldSales || [],
+                credits: snap.credits || [],
+                expenses: snap.expenses || [],
+                suppliers: snap.suppliers || [],
+                users: snap.users?.length ? snap.users : useAppStore.getState().users,
+                stockReceives: snap.stockReceives || [],
+                stockAudits: snap.stockAudits || [],
+                activityLog: snap.activityLog || [],
+                ...(snap.settings ? { settings: snap.settings } : {}),
+              });
+            }
+          }
         } catch (e) {
-          console.warn("[boot cloud]", e);
+          console.warn("[boot cloud-first]", e);
+          try {
+            const { loadSnapshotFromDexie } = await import("@/db/bridge");
+            const snap = await loadSnapshotFromDexie();
+            if (snap && !cancelled) {
+              useAppStore.setState({
+                products: snap.products?.length ? snap.products : useAppStore.getState().products,
+                sales: snap.sales || [],
+                users: snap.users?.length ? snap.users : useAppStore.getState().users,
+                expenses: snap.expenses || [],
+                suppliers: snap.suppliers || [],
+                ...(snap.settings ? { settings: snap.settings } : {}),
+              });
+            }
+          } catch { /* ignore */ }
+        }
+      } else {
+        // OFFLINE: load local cache only
+        try {
+          const { loadSnapshotFromDexie } = await import("@/db/bridge");
+          const snap = await loadSnapshotFromDexie();
+          if (snap && !cancelled) {
+            useAppStore.setState({
+              products: snap.products?.length ? snap.products : useAppStore.getState().products,
+              sales: snap.sales || [],
+              heldSales: snap.heldSales || [],
+              credits: snap.credits || [],
+              expenses: snap.expenses || [],
+              suppliers: snap.suppliers || [],
+              users: snap.users?.length ? snap.users : useAppStore.getState().users,
+              stockReceives: snap.stockReceives || [],
+              stockAudits: snap.stockAudits || [],
+              activityLog: snap.activityLog || [],
+              cart: snap.cart || [],
+              ...(snap.settings ? { settings: snap.settings } : {}),
+            });
+          }
+        } catch (e) {
+          console.warn("[boot offline local]", e);
         }
       }
 
       if (cancelled) return;
       setDbReady(true);
-
-      // 3) Re-sync periodically + when tab visible
-      if (canCloud) {
-        window.setInterval(() => {
-          const s = useSyncStore.getState();
-          if (navigator.onLine && !s.isSyncing) {
-            void s.syncNow({ silent: true });
-          }
-        }, 15000);
-      }
     })();
 
     return () => {
@@ -206,25 +231,30 @@ function App() {
 
   // Always listen for focus/typing (including login)
 
-  // When device comes online or tab focuses — pull shared cloud DB
+  // Resume sync when online / tab visible / window focused (critical for phones)
   useEffect(() => {
     const sync = () => {
-      const s = useSyncStore.getState();
-      if (s.isOnline && s.cloud?.enabled && !s.isSyncing) {
-        void s.syncNow({ silent: true });
-      }
+      void forceCloudSync({ silent: true });
     };
     const onOnline = () => {
       useSyncStore.getState().setOnline(true);
       sync();
     };
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", () => useSyncStore.getState().setOnline(false));
-    document.addEventListener("visibilitychange", () => {
+    const onOffline = () => useSyncStore.getState().setOnline(false);
+    const onVisible = () => {
       if (document.visibilityState === "visible") sync();
-    });
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("focus", sync);
+    window.addEventListener("pageshow", sync);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("pageshow", sync);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
@@ -251,12 +281,12 @@ function App() {
   const Page = PAGES[activeTab] || SellPage;
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--bg)] text-[var(--text)] touch-manipulation">
+    <div className="h-[100dvh] w-screen flex flex-col overflow-hidden bg-[var(--bg)] text-[var(--text)] touch-manipulation">
       <InputFocusScroll />
       <OfflineBanner />
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
         <Sidebar />
-        <main className="flex-1 min-w-0 h-full overflow-hidden [contain:layout_paint]">
+        <main className="flex-1 min-w-0 h-full overflow-hidden [contain:layout_paint] pb-16 md:pb-0">
           <Page />
         </main>
       </div>

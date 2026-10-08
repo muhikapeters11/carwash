@@ -95,7 +95,7 @@ export async function pullAllRemote(cfg: CloudConfig): Promise<RemoteSnapshot> {
   };
 }
 
-/** Apply remote snapshot into app store (local-first merge) */
+/** Apply remote snapshot into app store (cloud-first when online) */
 export async function applyRemoteSnapshot(
   snap: RemoteSnapshot,
   getState: () => any,
@@ -114,14 +114,15 @@ export async function applyRemoteSnapshot(
     /* ignore */
   }
 
-  // Merge cloud + local (LWW). Never wipe newer local changes on refresh/sync.
-  // Other devices still get cloud rows; local pending wins until pushed.
-  if (snap.products?.length && !skipBusinessRestore) {
-    // Merge LWW so a local stock receive is not wiped by an older cloud row
-    const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
-    setState({
-      products: mergeCatalogCloudFirst(s.products || [], snap.products),
-    });
+  // Cloud is source of truth for multi-device. Local only keeps very recent offline rows.
+  if (!skipBusinessRestore && Array.isArray(snap.products)) {
+    if (snap.products.length) {
+      const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
+      setState({
+        products: mergeCatalogCloudFirst(s.products || [], snap.products),
+      });
+    }
+    // empty cloud products: leave local only if nothing was ever seeded (handled by seed path)
   }
   // Users: cloud list is authority when we successfully received an array from pull
   if (Array.isArray(snap.users)) {
@@ -174,15 +175,22 @@ export async function applyRemoteSnapshot(
       activityLog: [],
     });
   } else if (Array.isArray(snap.sales)) {
+    // Cloud-first sales: remote list is the shared truth; keep only very recent
+    // local-only sales (offline just completed, not pushed yet).
     if (snap.sales.length) {
-      const merged = byIdMerge(s.sales || [], snap.sales);
+      const remoteIds = new Set(snap.sales.map((x: any) => x.id));
+      const localOnly = (s.sales || []).filter((sale: any) => {
+        if (remoteIds.has(sale.id)) return false;
+        const age = Date.now() - new Date(sale.created_at || 0).getTime();
+        return age < 10 * 60 * 1000; // 10 min offline buffer
+      });
+      const merged = [...snap.sales, ...localOnly];
       merged.sort(
         (a, b) =>
           new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
       );
       setState({ sales: merged });
     } else {
-      // Cloud empty after wipe — clear local history so reports/dashboard stay empty
       setState({ sales: [] });
     }
   }

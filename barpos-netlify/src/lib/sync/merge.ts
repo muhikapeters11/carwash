@@ -36,7 +36,31 @@ export function mergeProductLWW(
     };
   }
 
-  // Local newer or equal → keep local (especially stock after receive)
+  // Local strictly newer → keep local (recent receive/sale on this device)
+  if (lt > rt) {
+    return {
+      ...remote,
+      ...local,
+      stock_quantity: local.stock_quantity,
+      cost: local.cost ?? remote.cost,
+      updated_at: local.updated_at || remote.updated_at,
+      units_per_pack: local.units_per_pack ?? remote.units_per_pack ?? 1,
+      min_stock: local.min_stock ?? remote.min_stock ?? 0,
+      is_active: local.is_active !== false,
+    };
+  }
+
+  // Tie: prefer remote when cloud-first so all devices match last sync
+  if (preferRemoteOnTie) {
+    return {
+      ...local,
+      ...remote,
+      units_per_pack: remote.units_per_pack ?? local.units_per_pack ?? 1,
+      min_stock: remote.min_stock ?? local.min_stock ?? 0,
+      is_active: remote.is_active !== false,
+    };
+  }
+
   return {
     ...remote,
     ...local,
@@ -53,7 +77,12 @@ export function mergeCatalog(local: Product[], remote: Product[]): Product[] {
   return mergeCatalogCloudFirst(local, remote);
 }
 
-/** Merge cloud + local; local newer stock always wins */
+/**
+ * Cloud-first catalog for multi-device.
+ * - Cloud rows are the base (last synced data on every device).
+ * - Local-only products kept only if created in the last 5 minutes (offline add not pushed yet).
+ * - For shared ids: LWW, but prefer remote on tie so other devices match cloud.
+ */
 export function mergeCatalogCloudFirst(
   local: Product[],
   remote: Product[]
@@ -84,12 +113,12 @@ export function mergeCatalogCloudFirst(
     if (!existing) {
       const updated = new Date(lp.updated_at || 0).getTime();
       const age = Date.now() - updated;
-      if (updated > 0 && age < 2 * 24 * 60 * 60 * 1000) {
+      // Only keep very recent offline-created products not yet on cloud
+      if (updated > 0 && age < 5 * 60 * 1000) {
         byId.set(lp.id, lp);
       }
     } else {
-      // preferRemoteOnTie = false so receives stick
-      byId.set(lp.id, mergeProductLWW(lp, existing, false));
+      byId.set(lp.id, mergeProductLWW(lp, existing, true));
     }
   }
   return Array.from(byId.values());
