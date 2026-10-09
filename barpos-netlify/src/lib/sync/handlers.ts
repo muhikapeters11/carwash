@@ -122,7 +122,20 @@ const handlers: Record<string, Handler> = {
 
   product_upsert: async (cfg, op) => {
     const p = op.payload as Product;
-    return upsert(
+    const { resolveProductImageForCloud } = await import("@/lib/compressImage");
+    let imageUrl: string | null = p.image_url ?? null;
+    try {
+      imageUrl = await resolveProductImageForCloud(
+        cfg.supabase_url,
+        cfg.supabase_anon_key,
+        p.id,
+        p.image_url
+      );
+    } catch {
+      // keep original if small enough
+      if (imageUrl && imageUrl.length > 28_000) imageUrl = null;
+    }
+    const result = await upsert(
       cfg,
       "products",
       stripUndefined({
@@ -136,11 +149,22 @@ const handlers: Record<string, Handler> = {
         units_per_pack: p.units_per_pack ?? 1,
         pack_label: p.pack_label ?? null,
         min_stock: p.min_stock ?? 0,
-        image_url: p.image_url ?? null,
+        image_url: imageUrl,
         is_active: p.is_active !== false,
         updated_at: p.updated_at || new Date().toISOString(),
       })
     );
+    // If row saved with a public Storage URL, update local product so this device matches others
+    if (result.ok && imageUrl && imageUrl.startsWith("http") && imageUrl !== p.image_url) {
+      try {
+        const { useAppStore } = await import("@/stores/appStore");
+        const products = useAppStore.getState().products.map((x) =>
+          x.id === p.id ? { ...x, image_url: imageUrl! } : x
+        );
+        useAppStore.setState({ products });
+      } catch { /* ignore */ }
+    }
+    return result;
   },
 
   settings_upsert: async (cfg, op) => {

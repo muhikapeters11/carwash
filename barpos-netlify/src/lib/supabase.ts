@@ -83,6 +83,7 @@ export async function supabaseUpsert(
     body,
     query: "on_conflict=id",
     prefer: "resolution=merge-duplicates,return=minimal",
+    timeoutMs: 60000,
   });
   return { error, status };
 }

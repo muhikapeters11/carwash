@@ -58,13 +58,13 @@ export function ProductsPage() {
     const reader = new FileReader();
     reader.onload = async () => {
       const raw = reader.result as string;
-      const compressed = await compressImageDataUrl(raw, 200, 0.55);
+      const compressed = await compressImageDataUrl(raw, 160, 0.5);
       setImage(compressed);
     };
     reader.readAsDataURL(file);
   };
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !sku || !price) return;
     const skuTaken = products.some(
@@ -74,6 +74,26 @@ export function ProductsPage() {
       alert("A product with this SKU already exists. Use a unique SKU or edit the existing product.");
       return;
     }
+    // Resolve image to a public Storage URL BEFORE queueing so every device gets the same URL
+    let imageUrl = image;
+    if (image && image.startsWith("data:")) {
+      try {
+        const { useSyncStore } = await import("@/stores/syncStore");
+        const cloud = useSyncStore.getState().cloud;
+        const { resolveProductImageForCloud } = await import("@/lib/compressImage");
+        const idForImage = editing?.id || `tmp-${Date.now()}`;
+        const resolved = await resolveProductImageForCloud(
+          cloud.supabase_url || "",
+          cloud.supabase_anon_key || "",
+          idForImage,
+          image
+        );
+        if (resolved) imageUrl = resolved;
+      } catch {
+        /* keep compressed data URL */
+      }
+    }
+
     const payload = {
       name,
       sku,
@@ -83,7 +103,7 @@ export function ProductsPage() {
       stock_quantity: parseInt(stock || "0", 10),
       units_per_pack: parseInt(unitsPerPack || "1", 10) || 1,
       pack_label: packLabel || undefined,
-      image_url: image,
+      image_url: imageUrl,
       min_stock: parseInt(minStock || "0", 10) || 0,
       is_active: isActive,
     };
@@ -92,7 +112,6 @@ export function ProductsPage() {
     } else {
       addProduct(payload);
     }
-    // Push image + product to cloud immediately when online
     void import("@/stores/syncStore").then(({ forceCloudSync }) => {
       void forceCloudSync({ silent: true });
     });

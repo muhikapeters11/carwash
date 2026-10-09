@@ -86,9 +86,12 @@ export function mergeCatalog(local: Product[], remote: Product[]): Product[] {
  */
 export function mergeCatalogCloudFirst(
   local: Product[],
-  remote: Product[]
+  remote: Product[],
+  /** Product ids still waiting in the outbound sync queue (offline adds) */
+  pendingLocalIds?: Set<string>
 ): Product[] {
-  if (!remote?.length) return local || [];
+  // Empty remote = empty catalog (caller also handles this). Do not revive local ghosts.
+  if (!remote?.length) return [];
 
   const byId = new Map<string, Product>();
   for (const rp of remote) {
@@ -101,7 +104,7 @@ export function mergeCatalogCloudFirst(
       updated_at: new Date().toISOString(),
       sku: "",
       name: "",
-      category: "soft_drinks",
+      category: "soft_drinks" as Product["category"],
       price: 0,
       cost: 0,
       stock_quantity: 0,
@@ -112,14 +115,17 @@ export function mergeCatalogCloudFirst(
     if (!lp?.id) continue;
     const existing = byId.get(lp.id);
     if (!existing) {
-      const updated = new Date(lp.updated_at || 0).getTime();
-      const age = Date.now() - updated;
-      // Only keep very recent offline-created products not yet on cloud
-      if (updated > 0 && age < 5 * 60 * 1000) {
+      // Only keep local-only rows that are still queued to upload — never resurrect deletes
+      if (pendingLocalIds?.has(lp.id)) {
         byId.set(lp.id, lp);
       }
     } else {
-      byId.set(lp.id, mergeProductLWW(lp, existing, true));
+      // Prefer cloud image when remote has one so photos appear on every device
+      const merged = mergeProductLWW(lp, existing, true);
+      byId.set(lp.id, {
+        ...merged,
+        image_url: existing.image_url || merged.image_url || lp.image_url,
+      });
     }
   }
   return Array.from(byId.values());

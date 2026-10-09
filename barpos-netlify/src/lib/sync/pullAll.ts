@@ -207,12 +207,19 @@ export async function applyRemoteSnapshot(
   if (!skipBusinessRestore && (Array.isArray(snap.products) || snap.productsFetched)) {
     if (snap.products && snap.products.length) {
       const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
-      // Cloud is authority: do not keep local-only products longer than offline buffer
+      let pendingIds = new Set<string>();
+      try {
+        const { useSyncStore } = await import("@/stores/syncStore");
+        for (const op of useSyncStore.getState().pendingOps || []) {
+          if (op.type === "product_upsert" && op.payload && (op.payload as any).id) {
+            pendingIds.add(String((op.payload as any).id));
+          }
+        }
+      } catch { /* ignore */ }
       setState({
-        products: mergeCatalogCloudFirst(s.products || [], snap.products),
+        products: mergeCatalogCloudFirst(s.products || [], snap.products, pendingIds),
       });
     } else if (snap.productsFetched || Array.isArray(snap.products)) {
-      // Cloud catalog empty (delete-all or reset) → every device must show zero products
       setState({ products: [] });
     }
   }
@@ -291,7 +298,7 @@ export async function applyRemoteSnapshot(
       const localOnly = (s.sales || []).filter((sale: any) => {
         if (remoteIds.has(sale.id)) return false;
         const age = Date.now() - new Date(sale.created_at || 0).getTime();
-        return age < 10 * 60 * 1000; // 10 min offline buffer
+        return age < 2 * 60 * 1000; // 2 min offline-only buffer
       });
       const merged = [...snap.sales, ...localOnly];
       merged.sort(
@@ -310,15 +317,23 @@ export async function applyRemoteSnapshot(
     setState({ credits });
   }
 
-  if (!skipBusinessRestore && snap.stockReceives?.length) {
-    setState({
-      stockReceives: byIdMerge(s.stockReceives || [], snap.stockReceives),
-    });
+  if (!skipBusinessRestore && Array.isArray(snap.stockReceives)) {
+    if (snap.stockReceives.length) {
+      setState({
+        stockReceives: byIdMerge(s.stockReceives || [], snap.stockReceives),
+      });
+    } else {
+      setState({ stockReceives: [] });
+    }
   }
-  if (!skipBusinessRestore && snap.stockAudits?.length) {
-    setState({
-      stockAudits: byIdMerge(s.stockAudits || [], snap.stockAudits),
-    });
+  if (!skipBusinessRestore && Array.isArray(snap.stockAudits)) {
+    if (snap.stockAudits.length) {
+      setState({
+        stockAudits: byIdMerge(s.stockAudits || [], snap.stockAudits),
+      });
+    } else {
+      setState({ stockAudits: [] });
+    }
   }
   if (!skipBusinessRestore && Array.isArray(snap.expenses)) {
     if (snap.expenses.length) {

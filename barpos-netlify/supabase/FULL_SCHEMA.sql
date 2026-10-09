@@ -265,3 +265,37 @@ where table_schema = 'public'
     'app_settings','credit_events'
   )
 order by table_name;
+
+
+-- ---------------------------------------------------------------------------
+-- PRODUCT IMAGES STORAGE (required for photos on all devices)
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'product-images',
+  'product-images',
+  true,
+  524288,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update set public = true;
+
+drop policy if exists "anon read product images" on storage.objects;
+create policy "anon read product images"
+  on storage.objects for select
+  using (bucket_id = 'product-images');
+
+drop policy if exists "anon upload product images" on storage.objects;
+create policy "anon upload product images"
+  on storage.objects for insert
+  with check (bucket_id = 'product-images');
+
+drop policy if exists "anon update product images" on storage.objects;
+create policy "anon update product images"
+  on storage.objects for update
+  using (bucket_id = 'product-images');
+
+drop policy if exists "anon delete product images" on storage.objects;
+create policy "anon delete product images"
+  on storage.objects for delete
+  using (bucket_id = 'product-images');
