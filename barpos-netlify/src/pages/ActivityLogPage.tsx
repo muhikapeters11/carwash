@@ -3,7 +3,7 @@ import { useAppStore } from "@/stores/appStore";
 export function ActivityLogPage() {
   const logs = useAppStore((s) => s.activityLog);
   return (
-    <div className="h-full overflow-y-auto p-6 bg-slate-50">
+    <div className="h-full overflow-y-auto p-4 sm:p-6 pb-24 md:pb-6 bg-[var(--bg)]">
       <h1 className="text-xl font-bold mb-4">Activity Log</h1>
       <div className="bg-white rounded-2xl border divide-y">
         {logs.length === 0 ? (

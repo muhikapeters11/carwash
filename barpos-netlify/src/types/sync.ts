@@ -12,7 +12,8 @@ export type PendingOpType =
   | "product_return"
   | "user_upsert"
   | "user_delete"
-  | "settings_upsert";
+  | "settings_upsert"
+  | "activity_log";
 
 export interface PendingOp {
   id: string;

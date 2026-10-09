@@ -259,3 +259,21 @@ body.kb-open .fixed.inset-0.sm\:items-center {
     font-size: 16px; /* prevent iOS zoom on focus */
   }
 }
+
+
+/* mobile-scroll-fix: ensure every tab can scroll on phones */
+@media (max-width: 767px) {
+  main {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+  main > * {
+    min-height: min-content;
+  }
+  .overflow-y-auto,
+  [class*="overflow-y-auto"] {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+}

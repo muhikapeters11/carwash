@@ -281,7 +281,26 @@ export async function dispatchPendingOp(
       ok: false,
       kind: "permanent",
       error: `Unknown op type: ${op.type}`,
+    
+  activity_log: async (cfg, op) => {
+    const a = op.payload as {
+      id: string;
+      user_id?: string;
+      user_name?: string;
+      action: string;
+      details?: string;
+      created_at?: string;
     };
+    return upsert(cfg, "activity_logs", {
+      id: a.id,
+      user_id: a.user_id || null,
+      user_name: a.user_name || null,
+      action: a.action,
+      details: a.details || null,
+      created_at: a.created_at || op.created_at,
+    });
+  },
+};
   }
   try {
     return await handler(cfg, op);

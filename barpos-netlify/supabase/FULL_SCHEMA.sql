@@ -215,6 +215,21 @@ create policy "anon all users" on users for all using (true) with check (true);
 drop policy if exists "anon all app_settings" on app_settings;
 create policy "anon all app_settings" on app_settings for all using (true) with check (true);
 
+
+-- Activity logs (shared across devices)
+create table if not exists activity_logs (
+  id text primary key,
+  user_id text,
+  user_name text,
+  action text,
+  details text,
+  created_at timestamptz default now()
+);
+alter table activity_logs enable row level security;
+drop policy if exists "anon all activity_logs" on activity_logs;
+create policy "anon all activity_logs" on activity_logs for all using (true) with check (true);
+do $$ begin alter publication supabase_realtime add table activity_logs; exception when duplicate_object then null; end $$;
+
 -- ---------------------------------------------------------------------------
 -- REALTIME (mandatory for multi-device live updates)
 -- Adds each table to supabase_realtime publication (idempotent)

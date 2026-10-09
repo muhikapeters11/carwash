@@ -61,8 +61,10 @@ export function useProductRealtime() {
         const already = state.sales.some((s) => s.id === sale.id);
 
         if (already) {
-          useAppStore.setState({
-            sales: state.sales.map((s) => (s.id === sale.id ? sale : s)),
+          const nextSales = state.sales.map((s) => (s.id === sale.id ? sale : s));
+          useAppStore.setState({ sales: nextSales });
+          void import("@/lib/sync/pullAll").then(({ rebuildCreditsFromSales }) => {
+            useAppStore.setState({ credits: rebuildCreditsFromSales(nextSales) });
           });
           return;
         }
@@ -99,12 +101,19 @@ export function useProductRealtime() {
           });
         }
 
+        const nextSales = [sale, ...state.sales].sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
         useAppStore.setState({
-          sales: [sale, ...state.sales].sort(
-            (a, b) =>
-              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          ),
+          sales: nextSales,
           products,
+        });
+        // Keep Credits tab in sync live across devices
+        void import("@/lib/sync/pullAll").then(({ rebuildCreditsFromSales }) => {
+          useAppStore.setState({
+            credits: rebuildCreditsFromSales(nextSales),
+          });
         });
       },
 

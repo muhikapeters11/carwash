@@ -63,7 +63,7 @@ export function CreditsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6 bg-[var(--bg)]">
+    <div className="h-full overflow-y-auto p-4 sm:p-6 pb-24 md:pb-6 bg-[var(--bg)]">
       <h1 className="text-xl font-bold mb-4 text-[var(--text)]">Credits</h1>
 
       {isAdmin && recentPayments.length > 0 && (
@@ -156,13 +156,18 @@ export function CreditsPage() {
               <input
                 readOnly={!isMobileDevice()}
                 value={amount}
+                inputMode="decimal"
+                pattern="[0-9.]*"
+                onChange={(e) =>
+                  setAmount(e.target.value.replace(/[^0-9.]/g, ""))
+                }
                 onPointerDown={(e) => {
                   if (isMobileDevice()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   kb.openFor(amount, setAmount, "numeric", e.currentTarget);
                 }}
-                className="mt-1 w-full px-3 py-3 rounded-xl cursor-pointer text-xl font-bold"
+                className="mt-1 w-full px-3 py-3 rounded-xl cursor-pointer text-xl font-bold bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--border)]"
               />
             </div>
             <div className="flex gap-2">

@@ -113,7 +113,7 @@ export function UsersPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6 bg-[var(--bg)]">
+    <div className="h-full overflow-y-auto p-4 sm:p-6 pb-24 md:pb-6 bg-[var(--bg)]">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-xl font-bold text-[var(--text)]">Users</h1>
         <button

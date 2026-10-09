@@ -63,7 +63,7 @@ export function SellPage() {
   };
 
   return (
-    <div className="flex flex-col md:flex-row h-full min-h-0">
+    <div className="flex flex-col md:flex-row h-full min-h-0 pb-2 md:pb-0">
       <div className="flex-1 min-h-0 overflow-hidden order-1 md:order-1">
         <ProductGrid />
       </div>

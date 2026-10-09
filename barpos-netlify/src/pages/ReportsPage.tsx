@@ -196,7 +196,7 @@ export function ReportsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-4 sm:p-6 bg-[var(--bg)]">
+    <div className="h-full overflow-y-auto p-4 sm:p-6 pb-24 md:pb-6 bg-[var(--bg)]">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <h1 className="text-xl font-bold text-[var(--text)]">Reports</h1>
         <div className="flex flex-wrap gap-2">

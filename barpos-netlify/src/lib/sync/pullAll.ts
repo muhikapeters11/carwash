@@ -23,6 +23,7 @@ export type RemoteSnapshot = {
   suppliers?: Supplier[];
   productReturns?: any[];
   settings?: Record<string, unknown>;
+  activityLogs?: any[];
   errors: string[];
 };
 
@@ -60,7 +61,7 @@ export async function pullAllRemote(cfg: CloudConfig): Promise<RemoteSnapshot> {
     return { errors: ["Cloud not configured"] };
   }
 
-  const [products, users, sales, receives, audits, expenses, suppliers, productReturns, settingsRow] =
+  const [products, users, sales, receives, audits, expenses, suppliers, productReturns, settingsRow, activityLogs] =
     await Promise.all([
       getTable<Product>(cfg, "products", "select=*&order=updated_at.desc"),
       getTable<User>(cfg, "users", "select=*"),
@@ -75,9 +76,10 @@ export async function pullAllRemote(cfg: CloudConfig): Promise<RemoteSnapshot> {
         "app_settings",
         "select=*&id=eq.app"
       ),
+      getTable<any>(cfg, "activity_logs", "select=*&order=created_at.desc&limit=200"),
     ]);
 
-  for (const r of [products, users, sales, receives, audits, expenses, suppliers, productReturns, settingsRow]) {
+  for (const r of [products, users, sales, receives, audits, expenses, suppliers, productReturns, settingsRow, activityLogs]) {
     if (r.error) errors.push(r.error);
   }
 
@@ -91,8 +93,86 @@ export async function pullAllRemote(cfg: CloudConfig): Promise<RemoteSnapshot> {
     suppliers: suppliers.data,
     productReturns: productReturns.data,
     settings: settingsRow.data?.[0]?.payload as Record<string, unknown> | undefined,
+    activityLogs: activityLogs.data,
     errors,
   };
+}
+
+
+/** Rebuild open credits from completed credit sales + payment sales (cloud-first) */
+export function rebuildCreditsFromSales(sales: any[]): Credit[] {
+  const byCustomer = new Map<
+    string,
+    {
+      id: string;
+      customer_name: string;
+      original_amount: number;
+      amount_paid: number;
+      balance: number;
+      cashier_id: string;
+      cashier_name: string;
+      created_at: string;
+      updated_at: string;
+      sale_id: string;
+      payments: { amount: number; method: string; paid_at: string; recorded_by: string }[];
+    }
+  >();
+
+  const creditSales = (sales || [])
+    .filter((s) => s && s.status === "completed")
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    );
+
+  for (const s of creditSales) {
+    if (s.payment_method === "credit" && !s.is_credit_payment) {
+      const name = (s.credit_customer_name || "Unknown").trim();
+      const key = name.toLowerCase();
+      const existing = byCustomer.get(key);
+      const total = Number(s.total) || 0;
+      if (existing) {
+        existing.original_amount += total;
+        existing.balance += total;
+        existing.updated_at = s.created_at || existing.updated_at;
+        existing.sale_id = s.id || existing.sale_id;
+      } else {
+        byCustomer.set(key, {
+          id: s.credit_id || s.id || key,
+          customer_name: name,
+          original_amount: total,
+          amount_paid: 0,
+          balance: total,
+          cashier_id: s.cashier_id || "",
+          cashier_name: s.cashier_name || "",
+          created_at: s.created_at || new Date().toISOString(),
+          updated_at: s.created_at || new Date().toISOString(),
+          sale_id: s.id || "",
+          payments: [],
+        });
+      }
+    } else if (s.is_credit_payment) {
+      const name = (s.credit_customer_name || "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const existing = byCustomer.get(key);
+      const pay = Number(s.total) || 0;
+      if (existing) {
+        existing.amount_paid += pay;
+        existing.balance = Math.max(0, existing.balance - pay);
+        existing.updated_at = s.created_at || existing.updated_at;
+        existing.payments.push({
+          amount: pay,
+          method: s.payment_method || "cash",
+          paid_at: s.created_at || new Date().toISOString(),
+          recorded_by: s.cashier_name || "",
+        });
+      }
+    }
+  }
+
+  return Array.from(byCustomer.values()).filter((c) => c.balance > 0 || c.amount_paid > 0);
 }
 
 /** Apply remote snapshot into app store (cloud-first when online) */
@@ -196,6 +276,13 @@ export async function applyRemoteSnapshot(
       setState({ sales: [] });
     }
   }
+  // Rebuild credits from sales so Credits tab matches across devices
+  if (!skipBusinessRestore && Array.isArray(snap.sales)) {
+    const salesNow = getState().sales || [];
+    const credits = rebuildCreditsFromSales(salesNow);
+    setState({ credits });
+  }
+
   if (!skipBusinessRestore && snap.stockReceives?.length) {
     setState({
       stockReceives: byIdMerge(s.stockReceives || [], snap.stockReceives),
@@ -250,7 +337,30 @@ export async function applyRemoteSnapshot(
       setState({ productReturns: [] });
     }
   }
+  if (!skipBusinessRestore && Array.isArray(snap.activityLogs) && snap.activityLogs.length) {
+    const remote = snap.activityLogs.map((a: any) => ({
+      id: a.id,
+      user_id: a.user_id || "system",
+      user_name: a.user_name || "System",
+      action: a.action || "",
+      details: a.details || undefined,
+      created_at: a.created_at || new Date().toISOString(),
+    }));
+    const local = getState().activityLog || [];
+    const map = new Map(remote.map((x: any) => [x.id, x]));
+    for (const l of local) {
+      if (!map.has(l.id)) map.set(l.id, l);
+    }
+    setState({
+      activityLog: Array.from(map.values()).sort(
+        (a: any, b: any) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      ).slice(0, 200),
+    });
+  }
+
   if (snap.settings && typeof snap.settings === "object") {
+
     // Keep this device theme + printer preference
     setState({
       settings: {

@@ -800,6 +800,7 @@ export const useAppStore = create<AppState>()(
           created_at: new Date().toISOString(),
         };
         set({ activityLog: [log, ...get().activityLog].slice(0, 200) });
+        enqueueSync("activity_log", log);
       },
 
       updateSettings: (patch) => {

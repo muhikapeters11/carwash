@@ -86,7 +86,7 @@ export function DashboardPage() {
     yesterdaySales.filter((s) => s.is_credit_payment).reduce((s, x) => s + x.total, 0);
 
   return (
-    <div className="h-full overflow-y-auto p-6 bg-[var(--bg)]">
+    <div className="h-full overflow-y-auto p-4 sm:p-6 pb-24 md:pb-6 bg-[var(--bg)]">
       <h1 className="text-2xl font-bold text-[var(--text)] mb-1">Dashboard</h1>
 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <Stat

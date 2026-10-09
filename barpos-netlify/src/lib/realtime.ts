@@ -131,6 +131,8 @@ export function startProductRealtime(cfg: CloudConfig, handlers: Handlers): () =
         "product_returns",
         "stock_audits",
         "app_settings",
+        "activity_logs",
+        "credit_events",
       ] as const;
 
       let ch = client.channel("barpos-live");
@@ -237,6 +239,28 @@ export function startProductRealtime(cfg: CloudConfig, handlers: Handlers): () =
                     },
                   });
                 }
+              });
+            } else if (table === "activity_logs" && event !== "DELETE" && row) {
+              void import("@/stores/appStore").then(({ useAppStore }) => {
+                const state = useAppStore.getState();
+                const id = String(row.id || "");
+                if (!id || state.activityLog.some((a) => a.id === id)) return;
+                const log = {
+                  id,
+                  user_id: String(row.user_id || "system"),
+                  user_name: String(row.user_name || "System"),
+                  action: String(row.action || ""),
+                  details: row.details ? String(row.details) : undefined,
+                  created_at: String(row.created_at || new Date().toISOString()),
+                };
+                useAppStore.setState({
+                  activityLog: [log, ...state.activityLog].slice(0, 200),
+                });
+              });
+            } else if (table === "credit_events" && event !== "DELETE" && row) {
+              // Credit payments/open events — rebuild credits from sales after brief pull nudge
+              void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+                void forceCloudSync({ silent: true });
               });
             }
           }

@@ -162,7 +162,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6 bg-[var(--bg)]">
+    <div className="h-full overflow-y-auto p-4 sm:p-6 pb-24 md:pb-6 bg-[var(--bg)]">
       <div className="flex items-baseline justify-between gap-3 mb-4 max-w-lg">
         <h1 className="text-xl font-bold text-[var(--text)]">Backup & Settings</h1>
         <span className="text-xs text-[var(--text-muted)] font-mono">v{APP_VERSION}</span>
