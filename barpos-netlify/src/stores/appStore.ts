@@ -273,14 +273,38 @@ export const useAppStore = create<AppState>()(
         );
         set({ products: next });
         const prod = next.find((p) => p.id === id);
-        if (prod) {
-          enqueueSync("product_upsert", prod);
-          if (patch.image_url || prod.image_url) {
-            void import("@/stores/syncStore").then(({ forceCloudSync }) => {
-              void forceCloudSync({ silent: true });
-            });
+        if (!prod) return;
+
+        const push = async () => {
+          let toPush = prod;
+          const img = patch.image_url || prod.image_url;
+          if (img && String(img).startsWith("data:")) {
+            try {
+              const { useSyncStore } = await import("@/stores/syncStore");
+              const cloud = useSyncStore.getState().cloud;
+              const { resolveProductImageForCloud } = await import("@/lib/compressImage");
+              const resolved = await resolveProductImageForCloud(
+                cloud.supabase_url || "",
+                cloud.supabase_anon_key || "",
+                id,
+                img
+              );
+              if (resolved) {
+                toPush = { ...prod, image_url: resolved };
+                set({
+                  products: get().products.map((p) =>
+                    p.id === id ? { ...p, image_url: resolved } : p
+                  ),
+                });
+              }
+            } catch { /* keep data URL */ }
           }
-        }
+          enqueueSync("product_upsert", toPush);
+          void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+            void forceCloudSync({ silent: true });
+          });
+        };
+        void push();
       },
 
       deleteProduct: (id) => {

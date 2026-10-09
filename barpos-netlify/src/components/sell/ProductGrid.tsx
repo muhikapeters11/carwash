@@ -28,18 +28,9 @@ export function ProductGrid() {
 
   const groups = useMemo(() => groupProductsByCategory(filtered), [filtered]);
 
-  const lowStock = useMemo(
-    () =>
-      activeProducts.filter(
-        (p) => (p.min_stock ?? 0) > 0 && p.stock_quantity <= (p.min_stock ?? 0)
-      ),
-    [activeProducts]
-  );
-
   const renderCard = (p: Product) => {
     const out = p.stock_quantity <= 0;
-    const low =
-      !out && (p.min_stock ?? 0) > 0 && p.stock_quantity <= (p.min_stock ?? 0);
+    const low = false;
     return (
       <button
         key={p.id}
@@ -122,18 +113,7 @@ export function ProductGrid() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
-        {lowStock.length > 0 && !query.trim() && (
-          <div className="mb-3 rounded-xl border border-red-300 bg-red-50 dark:bg-red-900/30 dark:border-red-700 px-3 py-2 text-sm text-red-800 dark:text-red-100">
-            <strong>Low stock:</strong>{" "}
-            {lowStock
-              .slice(0, 8)
-              .map((p) => `${p.name} (${p.stock_quantity})`)
-              .join(" · ")}
-            {lowStock.length > 8 ? ` +${lowStock.length - 8} more` : ""}
-          </div>
-        )}
-
-        {filtered.length === 0 ? (
+{filtered.length === 0 ? (
           <div className="text-center py-16 text-[var(--text-muted)]">
             <p className="font-semibold">No products match</p>
             <p className="text-sm mt-1">Try another name or SKU</p>

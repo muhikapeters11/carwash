@@ -3,10 +3,13 @@ import { useSyncStore } from "@/stores/syncStore";
 import { useAppStore } from "@/stores/appStore";
 import { isCloudReady } from "@/lib/supabase";
 import { startProductRealtime, stopProductRealtime } from "@/lib/realtime";
-import type { Product } from "@/types";
+import type { Product, Sale, User, Expense, Supplier } from "@/types";
 
 /**
- * Live shared data — sales + stock so Sell/Inventory match across devices
+ * Live multi-device sync.
+ * RULE: stock_quantity changes ONLY via products table (onProduct).
+ * Sales / receives / audits / returns only update their own logs — never stock.
+ * That prevents double +/- when both the event and product_upsert arrive.
  */
 export function useProductRealtime() {
   const isOnline = useSyncStore((s) => s.isOnline);
@@ -23,42 +26,37 @@ export function useProductRealtime() {
       onProduct: (product, event) => {
         if (event === "DELETE") {
           useAppStore.setState({
-            products: useAppStore.getState().products.filter((p) => p.id !== product.id),
+            products: useAppStore
+              .getState()
+              .products.filter((p) => p.id !== product.id),
           });
           return;
         }
-        // Cloud product row is source of truth for stock on other devices
         const products = useAppStore.getState().products;
         const exists = products.find((p) => p.id === product.id);
         if (!exists) {
-          useAppStore.setState({ products: [...products, product] });
+          useAppStore.setState({ products: [...products, product as Product] });
           return;
         }
-        const lt = new Date(exists.updated_at || 0).getTime();
-        const rt = new Date(product.updated_at || 0).getTime();
-        // Prefer remote stock when remote is same age or newer (multi-device stock)
-        // Always prefer cloud image when present so product photos appear on all devices
+        // Cloud product row is sole authority for stock + image
         const remoteImage =
-          (product as Product).image_url || (exists as Product).image_url;
-        const merged: Product =
-          rt >= lt
-            ? {
-                ...exists,
-                ...product,
-                stock_quantity: product.stock_quantity,
-                cost: product.cost ?? exists.cost,
-                image_url: remoteImage,
-                updated_at: product.updated_at || exists.updated_at,
-                units_per_pack: product.units_per_pack ?? exists.units_per_pack ?? 1,
-                min_stock: product.min_stock ?? exists.min_stock ?? 0,
-                is_active: product.is_active !== false,
-              }
-            : {
-                ...exists,
-                image_url: (product as Product).image_url || exists.image_url,
-                name: (product as Product).name || exists.name,
-                price: (product as Product).price ?? exists.price,
-              };
+          (product as Product).image_url || exists.image_url;
+        const merged: Product = {
+          ...exists,
+          ...product,
+          stock_quantity:
+            product.stock_quantity !== undefined && product.stock_quantity !== null
+              ? product.stock_quantity
+              : exists.stock_quantity,
+          cost: product.cost ?? exists.cost,
+          image_url: remoteImage,
+          name: product.name || exists.name,
+          price: product.price ?? exists.price,
+          updated_at: product.updated_at || exists.updated_at,
+          units_per_pack: product.units_per_pack ?? exists.units_per_pack ?? 1,
+          min_stock: product.min_stock ?? exists.min_stock ?? 0,
+          is_active: product.is_active !== false,
+        };
         useAppStore.setState({
           products: products.map((p) => (p.id === product.id ? merged : p)),
         });
@@ -67,58 +65,14 @@ export function useProductRealtime() {
       onSale: (sale, event) => {
         if (event === "DELETE") return;
         const state = useAppStore.getState();
-        const already = state.sales.some((s) => s.id === sale.id);
-
-        if (already) {
-          const nextSales = state.sales.map((s) => (s.id === sale.id ? sale : s));
-          useAppStore.setState({ sales: nextSales });
-          void import("@/lib/sync/pullAll").then(({ rebuildCreditsFromSales }) => {
-            useAppStore.setState({ credits: rebuildCreditsFromSales(nextSales) });
-          });
-          return;
-        }
-
-        // New sale from another device → add sale AND deduct stock on Sell/Inventory
-        let products = state.products;
-        // Deduct stock for any completed sale (cash/mpesa/card/credit)
-        const items = Array.isArray(sale.items)
-          ? sale.items
-          : typeof sale.items === "string"
-            ? (() => {
-                try {
-                  return JSON.parse(sale.items as unknown as string);
-                } catch {
-                  return [];
-                }
-              })()
-            : [];
-        if ((sale.status === "completed" || !sale.status) && items.length) {
-          const now = new Date().toISOString();
-          products = products.map((p) => {
-            const line = items.find(
-              (i: { product_id?: string; quantity?: number }) =>
-                i.product_id === p.id
+        const nextSales = state.sales.some((s) => s.id === sale.id)
+          ? state.sales.map((s) => (s.id === sale.id ? (sale as Sale) : s))
+          : [sale as Sale, ...state.sales].sort(
+              (a, b) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
             );
-            if (!line) return p;
-            const qty = Number(line.quantity) || 0;
-            if (qty <= 0) return p;
-            return {
-              ...p,
-              stock_quantity: Math.max(0, (p.stock_quantity || 0) - qty),
-              updated_at: now,
-            };
-          });
-        }
-
-        const nextSales = [sale, ...state.sales].sort(
-          (a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-        useAppStore.setState({
-          sales: nextSales,
-          products,
-        });
-        // Keep Credits tab in sync live across devices
+        useAppStore.setState({ sales: nextSales });
+        // Credits derived from sales so Credits + Reports match every device
         void import("@/lib/sync/pullAll").then(({ rebuildCreditsFromSales }) => {
           useAppStore.setState({
             credits: rebuildCreditsFromSales(nextSales),
@@ -140,15 +94,19 @@ export function useProductRealtime() {
         const state = useAppStore.getState();
         const users = state.users;
         const prev = users.find((u) => u.id === user.id);
-        const mergedUser = prev ? { ...prev, ...user } : user;
+        const mergedUser = {
+          ...(prev || {}),
+          ...user,
+          is_active: user.is_active !== false,
+          allowed_tabs: user.allowed_tabs || prev?.allowed_tabs || [],
+        } as User;
         if (prev) {
           useAppStore.setState({
             users: users.map((u) => (u.id === user.id ? mergedUser : u)),
           });
         } else {
-          useAppStore.setState({ users: [...users, mergedUser as typeof users[0]] });
+          useAppStore.setState({ users: [...users, mergedUser] });
         }
-        // PIN changed on another device → force logout here
         const sess = useAppStore.getState().session;
         if (
           sess &&
@@ -159,7 +117,6 @@ export function useProductRealtime() {
         ) {
           useAppStore.getState().logout();
         }
-        // User deactivated
         if (sess && sess.id === user.id && user.is_active === false) {
           useAppStore.getState().logout();
         }
@@ -168,34 +125,40 @@ export function useProductRealtime() {
       onExpense: (row, event) => {
         if (event === "DELETE") {
           useAppStore.setState({
-            expenses: useAppStore.getState().expenses.filter((e) => e.id !== row.id),
+            expenses: useAppStore
+              .getState()
+              .expenses.filter((e) => e.id !== row.id),
           });
           return;
         }
         const list = useAppStore.getState().expenses;
-        if (list.some((e) => e.id === row.id)) {
+        const exp = row as Expense;
+        if (list.some((e) => e.id === exp.id)) {
           useAppStore.setState({
-            expenses: list.map((e) => (e.id === row.id ? row : e)),
+            expenses: list.map((e) => (e.id === exp.id ? exp : e)),
           });
         } else {
-          useAppStore.setState({ expenses: [row, ...list] });
+          useAppStore.setState({ expenses: [exp, ...list] });
         }
       },
 
       onSupplier: (row, event) => {
         if (event === "DELETE") {
           useAppStore.setState({
-            suppliers: useAppStore.getState().suppliers.filter((s) => s.id !== row.id),
+            suppliers: useAppStore
+              .getState()
+              .suppliers.filter((s) => s.id !== row.id),
           });
           return;
         }
         const list = useAppStore.getState().suppliers;
-        if (list.some((s) => s.id === row.id)) {
+        const sup = row as Supplier;
+        if (list.some((s) => s.id === sup.id)) {
           useAppStore.setState({
-            suppliers: list.map((s) => (s.id === row.id ? row : s)),
+            suppliers: list.map((s) => (s.id === sup.id ? sup : s)),
           });
         } else {
-          useAppStore.setState({ suppliers: [...list, row] });
+          useAppStore.setState({ suppliers: [...list, sup] });
         }
       },
 
@@ -203,23 +166,9 @@ export function useProductRealtime() {
         if (event === "DELETE") return;
         const state = useAppStore.getState();
         if (state.stockReceives.some((r) => r.id === row.id)) return;
-
-        // Another device received stock → add log + increase product qty
-        const now = new Date().toISOString();
-        const products = state.products.map((p) =>
-          p.id === row.product_id
-            ? {
-                ...p,
-                stock_quantity: p.stock_quantity + (row.quantity || 0),
-                cost: row.unit_cost || p.cost,
-                updated_at: now,
-              }
-            : p
-        );
-
+        // Log only — stock comes from onProduct
         useAppStore.setState({
-          stockReceives: [row, ...state.stockReceives],
-          products,
+          stockReceives: [row as any, ...state.stockReceives],
         });
       },
 
@@ -229,31 +178,22 @@ export function useProductRealtime() {
         if (!id) return;
         const state = useAppStore.getState();
         if (state.stockAudits.some((a) => a.id === id)) return;
-
-        const productId = String(row.product_id || "");
-        const newQty = Number(row.new_qty) || 0;
-        const now = new Date().toISOString();
-        const products = state.products.map((p) =>
-          p.id === productId
-            ? { ...p, stock_quantity: newQty, updated_at: now }
-            : p
-        );
         const audit = {
           id,
-          product_id: productId,
+          product_id: String(row.product_id || ""),
           product_name: String(row.product_name || ""),
           previous_qty: Number(row.previous_qty) || 0,
-          new_qty: newQty,
+          new_qty: Number(row.new_qty) || 0,
           difference: Number(row.difference) || 0,
           audited_by: String(row.audited_by || ""),
           audited_by_name: String(row.audited_by_name || ""),
-          note: (row.note as string) || undefined,
-          created_at: String(row.created_at || now),
+          note: row.note ? String(row.note) : undefined,
+          created_at: String(row.created_at || new Date().toISOString()),
           seen_by_admin: !!row.seen_by_admin,
         };
+        // Log only — stock comes from onProduct
         useAppStore.setState({
           stockAudits: [audit, ...state.stockAudits],
-          products,
         });
       },
 
@@ -263,56 +203,43 @@ export function useProductRealtime() {
         if (!id) return;
         const state = useAppStore.getState();
         if ((state.productReturns || []).some((r) => r.id === id)) return;
-
-        const qty = Number(row.quantity) || 0;
-        const productId = String(row.product_id || "");
-        const now = new Date().toISOString();
-        const products = state.products.map((p) =>
-          p.id === productId
-            ? {
-                ...p,
-                stock_quantity: p.stock_quantity + qty,
-                updated_at: now,
-              }
-            : p
-        );
-
+        // Log only — stock comes from onProduct
         useAppStore.setState({
           productReturns: [
             {
               id,
-              product_id: productId,
+              product_id: String(row.product_id || ""),
               product_name: String(row.product_name || ""),
-              quantity: qty,
+              quantity: Number(row.quantity) || 0,
               amount: Number(row.amount) || 0,
               note: (row.note as string) || undefined,
               cashier_id: String(row.cashier_id || ""),
               cashier_name: String(row.cashier_name || ""),
-              created_at: String(row.created_at || now),
+              created_at: String(row.created_at || new Date().toISOString()),
             },
             ...(state.productReturns || []),
           ],
-          products,
         });
       },
 
       onStatus: (status, detail) => {
         if (status === "live") {
-          setCloud({ last_sync_error: undefined, last_sync_at: new Date().toISOString() });
-          // Mandatory live path: pull latest snapshot when channel connects
+          setCloud({
+            last_sync_error: undefined,
+            last_sync_at: new Date().toISOString(),
+          });
           void import("@/stores/syncStore").then(({ forceCloudSync }) => {
             void forceCloudSync({ silent: true });
           });
         } else if (status === "error") {
           setCloud({
-            last_sync_error:
-              `Live sync offline: ${detail || "error"}. Enable Realtime for tables in Supabase (SQL in supabase/schema.sql).`,
+            last_sync_error: `Live sync offline: ${detail || "error"}. Enable Realtime for tables in Supabase.`,
           });
         }
       },
     });
 
-    // Reconnect watchdog — phones drop websocket after idle; re-subscribe + resync
+    // Periodic full pull so Reports/Credits/Dashboard stay aligned
     const reconnect = window.setInterval(() => {
       if (!navigator.onLine) return;
       void import("@/stores/syncStore").then(({ forceCloudSync }) => {

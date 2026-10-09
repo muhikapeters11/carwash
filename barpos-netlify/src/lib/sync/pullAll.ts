@@ -341,7 +341,7 @@ export async function applyRemoteSnapshot(
       const localOnly = (s.expenses || []).filter((e: any) => {
         if (remoteIds.has(e.id)) return false;
         const age = Date.now() - new Date(e.created_at || 0).getTime();
-        return age < 2 * 24 * 60 * 60 * 1000;
+        return age < 2 * 60 * 1000; // 2 min offline-only
       });
       setState({ expenses: [...snap.expenses, ...localOnly] });
     } else {
@@ -354,7 +354,7 @@ export async function applyRemoteSnapshot(
       const localOnly = (s.suppliers || []).filter((x: any) => {
         if (remoteIds.has(x.id)) return false;
         const age = Date.now() - new Date(x.created_at || 0).getTime();
-        return age < 2 * 24 * 60 * 60 * 1000;
+        return age < 2 * 60 * 1000; // 2 min offline-only
       });
       setState({ suppliers: [...snap.suppliers, ...localOnly] });
     } else {
@@ -367,7 +367,7 @@ export async function applyRemoteSnapshot(
       const localOnly = (s.productReturns || []).filter((x: any) => {
         if (remoteIds.has(x.id)) return false;
         const age = Date.now() - new Date(x.created_at || 0).getTime();
-        return age < 2 * 24 * 60 * 60 * 1000;
+        return age < 2 * 60 * 1000; // 2 min offline-only
       });
       const merged = [...snap.productReturns, ...localOnly];
       merged.sort(

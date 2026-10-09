@@ -43,7 +43,7 @@ export function mergeProductLWW(
       ...local,
       stock_quantity: local.stock_quantity,
       cost: local.cost ?? remote.cost,
-      image_url: local.image_url || remote.image_url,
+      image_url: remote.image_url || local.image_url,
       updated_at: local.updated_at || remote.updated_at,
       units_per_pack: local.units_per_pack ?? remote.units_per_pack ?? 1,
       min_stock: local.min_stock ?? remote.min_stock ?? 0,
@@ -56,6 +56,8 @@ export function mergeProductLWW(
     return {
       ...local,
       ...remote,
+      stock_quantity: remote.stock_quantity,
+      image_url: remote.image_url || local.image_url,
       units_per_pack: remote.units_per_pack ?? local.units_per_pack ?? 1,
       min_stock: remote.min_stock ?? local.min_stock ?? 0,
       is_active: remote.is_active !== false,
