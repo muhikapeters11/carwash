@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAppStore } from "@/stores/appStore";
-import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { useVirtualKeyboard, isMobileDevice } from "@/components/ui/VirtualKeyboard";
 import { Trash2 } from "lucide-react";
 
 export function SuppliersPage() {
@@ -32,12 +32,13 @@ export function SuppliersPage() {
         <div>
           <label className="text-sm font-medium text-[var(--text)]">Name *</label>
           <input
-            readOnly
+            readOnly={!isMobileDevice()}
             value={name}
             onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              kb.openFor(name, setName, "alpha", e.currentTarget);
+                  if (isMobileDevice()) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(name, setName, "alpha", e.currentTarget);
             }}
             placeholder="Supplier name"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
@@ -47,12 +48,13 @@ export function SuppliersPage() {
         <div>
           <label className="text-sm font-medium text-[var(--text)]">Phone</label>
           <input
-            readOnly
+            readOnly={!isMobileDevice()}
             value={phone}
             onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              kb.openFor(phone, setPhone, "numeric", e.currentTarget);
+                  if (isMobileDevice()) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(phone, setPhone, "numeric", e.currentTarget);
             }}
             placeholder="Optional"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
@@ -61,12 +63,13 @@ export function SuppliersPage() {
         <div>
           <label className="text-sm font-medium text-[var(--text)]">Email</label>
           <input
-            readOnly
+            readOnly={!isMobileDevice()}
             value={email}
             onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              kb.openFor(email, setEmail, "alpha", e.currentTarget);
+                  if (isMobileDevice()) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(email, setEmail, "alpha", e.currentTarget);
             }}
             placeholder="Optional"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"

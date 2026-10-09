@@ -24,7 +24,7 @@ const ICONS: Record<AppTab, typeof LayoutDashboard> = {
 };
 
 /** Primary tabs for bottom mobile bar */
-const MOBILE_PRIMARY: AppTab[] = ["sell", "dashboard", "products", "reports", "settings"];
+const MOBILE_PRIMARY: AppTab[] = ["sell", "receive_stock", "inventory", "reports", "dashboard"];
 
 export function Sidebar() {
   const session = useAppStore((s) => s.session);

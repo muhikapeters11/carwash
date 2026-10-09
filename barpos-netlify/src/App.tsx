@@ -116,7 +116,17 @@ function App() {
       });
 
       if (online) {
-        // CLOUD FIRST: pull latest shared data before showing the app
+        // CLOUD FIRST: discard local default users/catalog so we never show factory PIN/data
+        useAppStore.setState({
+          users: [],
+          products: [],
+          sales: [],
+          expenses: [],
+          suppliers: [],
+          credits: [],
+          stockReceives: [],
+          stockAudits: [],
+        });
         useSyncStore.getState().setOnline(true);
         useSyncStore.getState().setCloud({ enabled: true });
         try {

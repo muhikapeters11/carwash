@@ -26,7 +26,15 @@ export function LoginPage() {
       const s = useSyncStore.getState();
       const online = typeof navigator !== "undefined" && navigator.onLine;
       if (!online || !s.cloud?.supabase_url || !s.cloud?.supabase_anon_key) {
-        if (!cancelled) setCloudReady(true);
+        // Prefer cloud users; never leave factory defaults if cloud has data
+      try {
+        const users = useAppStore.getState().users || [];
+        const online2 = typeof navigator !== "undefined" && navigator.onLine;
+        if (online2 && users.length === 0) {
+          await forceCloudSync({ silent: true });
+        }
+      } catch { /* ignore */ }
+      if (!cancelled) setCloudReady(true);
         return;
       }
       if (!s.cloud.enabled) useSyncStore.getState().setCloud({ enabled: true });
@@ -56,6 +64,14 @@ export function LoginPage() {
       } catch {
         /* use local cache */
       }
+      // Prefer cloud users; never leave factory defaults if cloud has data
+      try {
+        const users = useAppStore.getState().users || [];
+        const online2 = typeof navigator !== "undefined" && navigator.onLine;
+        if (online2 && users.length === 0) {
+          await forceCloudSync({ silent: true });
+        }
+      } catch { /* ignore */ }
       if (!cancelled) setCloudReady(true);
     };
 
@@ -198,8 +214,15 @@ export function LoginPage() {
             onChange={() => {}}
             onKeyDown={onPhysicalKey}
             className="w-64 max-w-[90vw] text-center text-4xl tracking-[0.5em] py-4 rounded-2xl border-2 border-[var(--border)] bg-[var(--input-bg)] text-[var(--input-text)] mb-4"
-            readOnly
-            autoComplete="off"
+            readOnly={typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="one-time-code"
+            onChange={(e) => {
+              const next = e.target.value.replace(/\D/g, "").slice(0, 8);
+              setPin(next);
+              if (next.length >= 4) setTimeout(() => tryLogin(next), 80);
+            }}
           />
           {error ? <p className="text-red-500 text-base mb-2">{error}</p> : null}
           {msg ? <p className="text-emerald-600 text-base mb-2">{msg}</p> : null}

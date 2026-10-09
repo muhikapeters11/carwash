@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { groupProductsByCategory, formatMoney, cn } from "@/lib/utils";
 import { X } from "lucide-react";
-import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { useVirtualKeyboard, isMobileDevice } from "@/components/ui/VirtualKeyboard";
 
 export function InventoryPage() {
   const products = useAppStore((s) => s.products);
@@ -45,7 +45,7 @@ export function InventoryPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-4 bg-[var(--bg)]">
+    <div className="h-full overflow-y-auto p-4 pb-24 md:pb-4 bg-[var(--bg)]">
       <h1 className="text-xl font-bold mb-4 text-[var(--text)]">Inventory Audit</h1>
 
       {/* Admin stock value summary */}
@@ -160,9 +160,11 @@ export function InventoryPage() {
             <div>
               <label className="text-sm font-medium text-[var(--text)]">New quantity</label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={newQty}
+                onChange={(e) => setNewQty(e.target.value.replace(/[^0-9]/g, ""))}
                 onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   kb.openFor(newQty, setNewQty, "numeric", e.currentTarget);
@@ -173,9 +175,11 @@ export function InventoryPage() {
             <div>
               <label className="text-sm font-medium text-[var(--text)]">Note (optional)</label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={note}
+                onChange={(e) => setNote(e.target.value)}
                 onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   kb.openFor(note, setNote, "alpha", e.currentTarget);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { formatMoney } from "@/lib/utils";
-import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { useVirtualKeyboard, isMobileDevice } from "@/components/ui/VirtualKeyboard";
 import { Trash2 } from "lucide-react";
 
 export function ExpensesPage() {
@@ -33,9 +33,14 @@ export function ExpensesPage() {
         <div>
           <label className="text-sm font-medium text-[var(--text)]">Description *</label>
           <input
-            readOnly
+            readOnly={!isMobileDevice()}
             value={desc}
-            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); kb.openFor(desc, setDesc, "alpha", e.currentTarget); }}
+            onChange={(e) => setDesc(e.target.value)}
+            onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(desc, setDesc, "alpha", e.currentTarget); }}
             placeholder="What was paid for"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
             required
@@ -44,9 +49,14 @@ export function ExpensesPage() {
         <div>
           <label className="text-sm font-medium text-[var(--text)]">Amount (KSh) *</label>
           <input
-            readOnly
+            readOnly={!isMobileDevice()}
             value={amount}
-            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); kb.openFor(amount, setAmount, "numeric", e.currentTarget); }}
+            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+            onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(amount, setAmount, "numeric", e.currentTarget); }}
             placeholder="0.00"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
             required
@@ -55,9 +65,14 @@ export function ExpensesPage() {
         <div>
           <label className="text-sm font-medium text-[var(--text)]">Category</label>
           <input
-            readOnly
+            readOnly={!isMobileDevice()}
             value={cat}
-            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); kb.openFor(cat, setCat, "alpha", e.currentTarget); }}
+            onChange={(e) => setCat(e.target.value)}
+            onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  kb.openFor(cat, setCat, "alpha", e.currentTarget); }}
             placeholder="e.g. Utilities"
             className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
           />

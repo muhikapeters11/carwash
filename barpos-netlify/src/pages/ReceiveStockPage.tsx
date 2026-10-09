@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { groupProductsByCategory, cn } from "@/lib/utils";
 import { X, Bell } from "lucide-react";
-import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { useVirtualKeyboard, isMobileDevice } from "@/components/ui/VirtualKeyboard";
 import { formatMoney } from "@/lib/utils";
 
 export function ReceiveStockPage() {
@@ -56,7 +56,7 @@ export function ReceiveStockPage() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg)]">
+    <div className="flex flex-col h-full bg-[var(--bg)] pb-16 md:pb-0">
       <div className="px-4 py-3 border-b border-[var(--border)]">
         <h1 className="text-xl font-bold text-[var(--text)]">Receive Stock</h1>
       </div>
@@ -173,9 +173,11 @@ export function ReceiveStockPage() {
                 Quantity{(product.units_per_pack || 1) > 1 ? ` (${product.pack_label || "packs"})` : ""} *
               </label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={qty}
+                onChange={(e) => setQty(e.target.value.replace(/[^0-9]/g, ""))}
                 onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   kb.openFor(qty, setQty, "numeric", e.currentTarget);
@@ -188,9 +190,11 @@ export function ReceiveStockPage() {
             <div>
               <label className="text-sm font-medium text-[var(--text)]">Total cost (KSh) *</label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={totalCost}
+                onChange={(e) => setTotalCost(e.target.value.replace(/[^0-9.]/g, ""))}
                 onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   kb.openFor(totalCost, setTotalCost, "numeric", e.currentTarget);
@@ -219,9 +223,10 @@ export function ReceiveStockPage() {
             <div>
               <label className="text-sm font-medium text-[var(--text)]">Receipt no. (optional)</label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={receiptNo}
                 onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   kb.openFor(receiptNo, setReceiptNo, "alpha", e.currentTarget);

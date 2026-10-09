@@ -135,15 +135,18 @@ export async function applyRemoteSnapshot(
         created_at: u.created_at || new Date().toISOString(),
         ...u,
       }));
-    let merged =
-      normalized.length > 0
-        ? mergeUsersCloudFirst(s.users || [], normalized)
-        : []; // cloud empty → drop stale local logins (deleted on main device)
+    // Cloud returned a user list → that list is authoritative (no default 1234 PIN).
+    // Only inject factory admin when cloud users table is completely empty.
+    let merged: any[];
+    if (normalized.length > 0) {
+      merged = mergeUsersCloudFirst([], normalized); // ignore stale local defaults
+    } else {
+      merged = [];
+    }
     const hasAdmin = merged.some(
       (u: any) => u.role === "admin" && u.is_active !== false
     );
-    if (!hasAdmin) {
-      // Only inject default admin if cloud truly has no admin (first install / wipe)
+    if (!hasAdmin && normalized.length === 0) {
       merged = [
         {
           id: "u-admin",
@@ -155,7 +158,6 @@ export async function applyRemoteSnapshot(
           is_active: true,
           created_at: new Date().toISOString(),
         },
-        ...merged,
       ];
     }
     setState({ users: merged });

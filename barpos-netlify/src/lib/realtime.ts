@@ -244,10 +244,25 @@ export function startProductRealtime(cfg: CloudConfig, handlers: Handlers): () =
       }
 
       channel = ch.subscribe((status: string) => {
-        if (status === "SUBSCRIBED") handlers.onStatus?.("live");
-        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT")
+        if (status === "SUBSCRIBED") {
+          handlers.onStatus?.("live");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           handlers.onStatus?.("error", status);
-        else if (status === "CLOSED") handlers.onStatus?.("off");
+          // Auto-retry subscription after brief delay
+          window.setTimeout(() => {
+            if (cancelled) return;
+            try {
+              if (channel && client) {
+                void client.removeChannel(channel);
+                channel = null;
+              }
+            } catch { /* ignore */ }
+            // Caller (hook) will re-run effect when deps change; also nudge sync
+            handlers.onStatus?.("error", "reconnecting…");
+          }, 3000);
+        } else if (status === "CLOSED") {
+          handlers.onStatus?.("off");
+        }
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Realtime unavailable";

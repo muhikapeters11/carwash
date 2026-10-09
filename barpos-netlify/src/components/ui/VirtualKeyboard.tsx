@@ -4,6 +4,16 @@ import { scrollFieldIntoView, getActiveField } from "@/lib/scrollToInput";
 
 type Mode = "alpha" | "numeric";
 
+/** Phone / narrow screen → use OS keyboard, not on-screen POS keyboard */
+export function isMobileDevice(): boolean {
+  if (typeof window === "undefined") return false;
+  const narrow = window.matchMedia("(max-width: 767px)").matches;
+  const ua = navigator.userAgent || "";
+  const mobileUa = /Android|iPhone|iPod|iPad|Mobile|webOS|BlackBerry/i.test(ua);
+  return narrow || mobileUa;
+}
+
+
 interface Props {
   open: boolean;
   mode: Mode;
@@ -166,6 +176,22 @@ export function useVirtualKeyboard() {
     keyboardMode: Mode = "alpha",
     el?: HTMLElement | null
   ) => {
+    // On phones: never open the built-in keyboard — use the device keyboard
+    if (isMobileDevice()) {
+      setOpen(false);
+      const field =
+        el ||
+        (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+      if (field) {
+        field.removeAttribute("readonly");
+        field.removeAttribute("readOnly");
+        try {
+          (field as HTMLInputElement).readOnly = false;
+        } catch { /* ignore */ }
+        setTimeout(() => field.focus(), 10);
+      }
+      return;
+    }
     document.querySelectorAll("[data-kb-active]").forEach((n) => {
       n.removeAttribute("data-kb-active");
     });
@@ -222,7 +248,7 @@ export function useVirtualKeyboard() {
     close,
     onInput,
     onBackspace,
-    Keyboard: (
+    Keyboard: isMobileDevice() ? null : (
       <VirtualKeyboard
         open={open}
         mode={mode}
@@ -241,13 +267,32 @@ export function bindKbField(
   setValue: (v: string) => void,
   mode: Mode = "numeric"
 ) {
+  if (isMobileDevice()) {
+    return {
+      value,
+      readOnly: false as const,
+      inputMode: (mode === "numeric" ? "decimal" : "text") as "decimal" | "text",
+      onChange: (e: { target: { value: string } }) => {
+        const v =
+          mode === "numeric"
+            ? e.target.value.replace(/[^0-9.]/g, "")
+            : e.target.value;
+        setValue(v);
+      },
+    };
+  }
   return {
     readOnly: true as const,
     value,
-    onPointerDown: (e: { preventDefault: () => void; stopPropagation: () => void; currentTarget: HTMLInputElement }) => {
+    onPointerDown: (e: {
+      preventDefault: () => void;
+      stopPropagation: () => void;
+      currentTarget: HTMLInputElement;
+    }) => {
       e.preventDefault();
       e.stopPropagation();
       kb.openFor(value, setValue, mode, e.currentTarget);
     },
   };
 }
+

@@ -3,7 +3,7 @@ import { useAppStore } from "@/stores/appStore";
 import { formatMoney, isInCurrentBusinessDay } from "@/lib/utils";
 import type { PaymentMethod } from "@/types";
 import { X, Bell } from "lucide-react";
-import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { useVirtualKeyboard, isMobileDevice } from "@/components/ui/VirtualKeyboard";
 
 export function CreditsPage() {
   const session = useAppStore((s) => s.session)!;
@@ -154,9 +154,10 @@ export function CreditsPage() {
             <div>
               <label className="text-sm font-medium text-[var(--text)]">Amount (KSh)</label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={amount}
                 onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   kb.openFor(amount, setAmount, "numeric", e.currentTarget);

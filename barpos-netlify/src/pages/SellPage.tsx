@@ -3,7 +3,7 @@ import { useAppStore } from "@/stores/appStore";
 import { formatMoney } from "@/lib/utils";
 import type { PaymentMethod, Sale } from "@/types";
 import { Minus, Plus, Trash2, Pause, X } from "lucide-react";
-import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { useVirtualKeyboard, isMobileDevice } from "@/components/ui/VirtualKeyboard";
 import { ProductGrid } from "@/components/sell/ProductGrid";
 import { ThermalReceipt } from "@/components/ThermalReceipt";
 
@@ -63,10 +63,12 @@ export function SellPage() {
   };
 
   return (
-    <div className="flex h-full">
-      <ProductGrid />
+    <div className="flex flex-col md:flex-row h-full min-h-0">
+      <div className="flex-1 min-h-0 overflow-hidden order-1 md:order-1">
+        <ProductGrid />
+      </div>
 
-      <div className="w-[22rem] sm:w-96 border-l border-[var(--border)] bg-[var(--bg-card)] flex flex-col shrink-0">
+      <div className="order-2 md:order-2 w-full md:w-[22rem] lg:w-96 max-h-[48%] md:max-h-none h-[48%] md:h-full border-t md:border-t-0 md:border-l border-[var(--border)] bg-[var(--bg-card)] flex flex-col shrink-0">
         <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between text-[var(--text)]">
           <span className="font-bold text-[var(--text)]">Current Sale</span>
           <div className="flex gap-1">
@@ -212,9 +214,10 @@ export function SellPage() {
                 Customer name *
               </label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={creditName}
                 onPointerDown={(e) => {
+                  if (isMobileDevice()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   kb.openFor(creditName, setCreditName, "alpha", e.currentTarget);

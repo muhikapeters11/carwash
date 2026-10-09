@@ -3,7 +3,7 @@ import { useAppStore } from "@/stores/appStore";
 import { ALL_TABS, TAB_LABELS, type AppTab, type User, type UserRole } from "@/types";
 import { uid } from "@/lib/utils";
 import { Trash2, Pencil } from "lucide-react";
-import { useVirtualKeyboard } from "@/components/ui/VirtualKeyboard";
+import { useVirtualKeyboard, isMobileDevice } from "@/components/ui/VirtualKeyboard";
 import { enqueueSync } from "@/stores/syncStore";
 
 export function UsersPage() {
@@ -173,8 +173,9 @@ export function UsersPage() {
             <div>
               <label className="text-sm text-[var(--text)]">Full name</label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
                 onClick={() => kb.openFor(fullName, setFullName, "alpha")}
                 className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
                 required
@@ -183,8 +184,9 @@ export function UsersPage() {
             <div>
               <label className="text-sm text-[var(--text)]">Username</label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 onClick={() => kb.openFor(username, setUsername, "alpha")}
                 className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
               />
@@ -192,8 +194,9 @@ export function UsersPage() {
             <div>
               <label className="text-sm text-[var(--text)]">PIN (unique)</label>
               <input
-                readOnly
+                readOnly={!isMobileDevice()}
                 value={pin}
+                onChange={(e) => setPin(e.target.value)}
                 onClick={() => kb.openFor(pin, setPin, "numeric")}
                 className="mt-1 w-full px-3 py-2.5 rounded-xl cursor-pointer"
                 required

@@ -28,7 +28,7 @@ const DEFAULT_CASHIER: User = {
   username: "cashier",
   role: "cashier",
   pin: "0000",
-  allowed_tabs: ["dashboard", "sell", "inventory", "credits"],
+  allowed_tabs: ["dashboard", "sell", "inventory", "receive_stock", "credits"],
   is_active: true,
   created_at: new Date().toISOString(),
 };
@@ -130,7 +130,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       session: null,
-      users: [DEFAULT_ADMIN, DEFAULT_CASHIER],
+      users: [], // filled from cloud when online; defaults only if cloud empty
       activeTab: "sell",
       products: [], // empty until cloud/local data — avoids phone showing sample catalog
       cart: [],

@@ -258,16 +258,30 @@ export function useProductRealtime() {
 
       onStatus: (status, detail) => {
         if (status === "live") {
-          setCloud({ last_sync_error: undefined });
+          setCloud({ last_sync_error: undefined, last_sync_at: new Date().toISOString() });
+          // Mandatory live path: pull latest snapshot when channel connects
+          void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+            void forceCloudSync({ silent: true });
+          });
         } else if (status === "error") {
           setCloud({
-            last_sync_error: `Live sync: ${detail || "error"} — enable Replication in Supabase`,
+            last_sync_error:
+              `Live sync offline: ${detail || "error"}. Enable Realtime for tables in Supabase (SQL in supabase/schema.sql).`,
           });
         }
       },
     });
 
+    // Reconnect watchdog — phones drop websocket after idle; re-subscribe + resync
+    const reconnect = window.setInterval(() => {
+      if (!navigator.onLine) return;
+      void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+        void forceCloudSync({ silent: true });
+      });
+    }, 30_000);
+
     return () => {
+      window.clearInterval(reconnect);
       stop();
     };
   }, [
