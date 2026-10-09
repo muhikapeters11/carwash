@@ -209,15 +209,20 @@ export function ReceiveStockPage() {
               <select
                 value={supplier}
                 onChange={(e) => setSupplier(e.target.value)}
-                className="mt-1 w-full px-3 py-3 rounded-xl"
+                className="mt-1 w-full px-3 py-3 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] text-[var(--input-text)]"
               >
-                <option value="">— None —</option>
+                <option value="">— None (optional) —</option>
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.name}>
                     {s.name}
                   </option>
                 ))}
               </select>
+              {suppliers.length === 0 && (
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  No suppliers yet — add them under Suppliers, or leave as None.
+                </p>
+              )}
             </div>
 
             <div>

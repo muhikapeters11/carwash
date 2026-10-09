@@ -13,14 +13,14 @@ export function mergeProductLWW(
   const rt = new Date(remote.updated_at || 0).getTime();
 
   if (rt > lt) {
-    // Remote newer — still protect a very recent local stock change (race with pull)
-    const localFresh = Date.now() - lt < 120_000; // 2 minutes
+    const localFresh = Date.now() - lt < 120_000;
     if (localFresh && local.stock_quantity !== remote.stock_quantity && lt >= rt - 1000) {
       return {
         ...remote,
         ...local,
         stock_quantity: local.stock_quantity,
         cost: local.cost ?? remote.cost,
+        image_url: remote.image_url || local.image_url,
         updated_at: local.updated_at || remote.updated_at,
         units_per_pack: local.units_per_pack ?? remote.units_per_pack ?? 1,
         min_stock: local.min_stock ?? remote.min_stock ?? 0,
@@ -43,6 +43,7 @@ export function mergeProductLWW(
       ...local,
       stock_quantity: local.stock_quantity,
       cost: local.cost ?? remote.cost,
+      image_url: local.image_url || remote.image_url,
       updated_at: local.updated_at || remote.updated_at,
       units_per_pack: local.units_per_pack ?? remote.units_per_pack ?? 1,
       min_stock: local.min_stock ?? remote.min_stock ?? 0,

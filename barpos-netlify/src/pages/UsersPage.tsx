@@ -68,7 +68,6 @@ export function UsersPage() {
         users: users.map((u) => (u.id === editing.id ? updated : u)),
       });
       enqueueSync("user_upsert", updated);
-      // Persist PIN immediately so refresh keeps the new value
       void import("@/db/bridge").then(({ flushDexieSave }) => {
         flushDexieSave(useAppStore.getState() as any);
       });
@@ -76,15 +75,22 @@ export function UsersPage() {
         const s = useSyncStore.getState();
         if (s.isOnline) void s.syncNow({ silent: true });
       });
+      // PIN change → force logout on this device (other devices via realtime)
+      const pinChanged = pin !== editing.pin;
       if (session.id === editing.id) {
-        useAppStore.setState({
-          session: {
-            ...session,
-            full_name: fullName,
-            role,
-            allowed_tabs: role === "admin" ? [...ALL_TABS] : tabs,
-          },
-        });
+        if (pinChanged) {
+          useAppStore.getState().logout();
+        } else {
+          useAppStore.setState({
+            session: {
+              ...session,
+              full_name: fullName,
+              role,
+              allowed_tabs: role === "admin" ? [...ALL_TABS] : tabs,
+              pin_snapshot: session.pin_snapshot || pin,
+            },
+          });
+        }
       }
     } else {
       const created: User = {

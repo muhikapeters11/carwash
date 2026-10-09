@@ -22,10 +22,9 @@ export function useProductRealtime() {
     const stop = startProductRealtime(cloud, {
       onProduct: (product, event) => {
         if (event === "DELETE") {
-          const products = useAppStore.getState().products.map((p) =>
-            p.id === product.id ? { ...p, is_active: false } : p
-          );
-          useAppStore.setState({ products });
+          useAppStore.setState({
+            products: useAppStore.getState().products.filter((p) => p.id !== product.id),
+          });
           return;
         }
         // Cloud product row is source of truth for stock on other devices
@@ -38,6 +37,9 @@ export function useProductRealtime() {
         const lt = new Date(exists.updated_at || 0).getTime();
         const rt = new Date(product.updated_at || 0).getTime();
         // Prefer remote stock when remote is same age or newer (multi-device stock)
+        // Always prefer cloud image when present so product photos appear on all devices
+        const remoteImage =
+          (product as Product).image_url || (exists as Product).image_url;
         const merged: Product =
           rt >= lt
             ? {
@@ -45,11 +47,18 @@ export function useProductRealtime() {
                 ...product,
                 stock_quantity: product.stock_quantity,
                 cost: product.cost ?? exists.cost,
+                image_url: remoteImage,
                 updated_at: product.updated_at || exists.updated_at,
                 units_per_pack: product.units_per_pack ?? exists.units_per_pack ?? 1,
                 min_stock: product.min_stock ?? exists.min_stock ?? 0,
+                is_active: product.is_active !== false,
               }
-            : exists;
+            : {
+                ...exists,
+                image_url: (product as Product).image_url || exists.image_url,
+                name: (product as Product).name || exists.name,
+                price: (product as Product).price ?? exists.price,
+              };
         useAppStore.setState({
           products: products.map((p) => (p.id === product.id ? merged : p)),
         });
@@ -119,18 +128,40 @@ export function useProductRealtime() {
 
       onUser: (user, event) => {
         if (event === "DELETE") {
+          const state = useAppStore.getState();
           useAppStore.setState({
-            users: useAppStore.getState().users.filter((u) => u.id !== user.id),
+            users: state.users.filter((u) => u.id !== user.id),
           });
+          if (state.session?.id === user.id) {
+            state.logout();
+          }
           return;
         }
-        const users = useAppStore.getState().users;
-        if (users.some((u) => u.id === user.id)) {
+        const state = useAppStore.getState();
+        const users = state.users;
+        const prev = users.find((u) => u.id === user.id);
+        const mergedUser = prev ? { ...prev, ...user } : user;
+        if (prev) {
           useAppStore.setState({
-            users: users.map((u) => (u.id === user.id ? { ...u, ...user } : u)),
+            users: users.map((u) => (u.id === user.id ? mergedUser : u)),
           });
         } else {
-          useAppStore.setState({ users: [...users, user] });
+          useAppStore.setState({ users: [...users, mergedUser as typeof users[0]] });
+        }
+        // PIN changed on another device → force logout here
+        const sess = useAppStore.getState().session;
+        if (
+          sess &&
+          sess.id === user.id &&
+          user.pin &&
+          sess.pin_snapshot &&
+          String(user.pin) !== String(sess.pin_snapshot)
+        ) {
+          useAppStore.getState().logout();
+        }
+        // User deactivated
+        if (sess && sess.id === user.id && user.is_active === false) {
+          useAppStore.getState().logout();
         }
       },
 

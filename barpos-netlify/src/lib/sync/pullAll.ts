@@ -22,8 +22,11 @@ export type RemoteSnapshot = {
   expenses?: Expense[];
   suppliers?: Supplier[];
   productReturns?: any[];
-  settings?: Record<string, unknown>;
+  settings?: Record<string, unknown> | null;
   activityLogs?: any[];
+  /** true when products table was read successfully (even if empty) */
+  productsFetched?: boolean;
+  settingsFetched?: boolean;
   errors: string[];
 };
 
@@ -92,8 +95,14 @@ export async function pullAllRemote(cfg: CloudConfig): Promise<RemoteSnapshot> {
     expenses: expenses.data,
     suppliers: suppliers.data,
     productReturns: productReturns.data,
-    settings: settingsRow.data?.[0]?.payload as Record<string, unknown> | undefined,
+    settings: settingsRow.error
+      ? undefined
+      : settingsRow.data && settingsRow.data.length
+        ? (settingsRow.data[0].payload as Record<string, unknown>)
+        : null,
     activityLogs: activityLogs.data,
+    productsFetched: !products.error,
+    settingsFetched: !settingsRow.error,
     errors,
   };
 }
@@ -195,14 +204,17 @@ export async function applyRemoteSnapshot(
   }
 
   // Cloud is source of truth for multi-device. Local only keeps very recent offline rows.
-  if (!skipBusinessRestore && Array.isArray(snap.products)) {
-    if (snap.products.length) {
+  if (!skipBusinessRestore && (Array.isArray(snap.products) || snap.productsFetched)) {
+    if (snap.products && snap.products.length) {
       const { mergeCatalogCloudFirst } = await import("@/lib/sync/merge");
+      // Cloud is authority: do not keep local-only products longer than offline buffer
       setState({
         products: mergeCatalogCloudFirst(s.products || [], snap.products),
       });
+    } else if (snap.productsFetched || Array.isArray(snap.products)) {
+      // Cloud catalog empty (delete-all or reset) → every device must show zero products
+      setState({ products: [] });
     }
-    // empty cloud products: leave local only if nothing was ever seeded (handled by seed path)
   }
   // Users: cloud list is authority when we successfully received an array from pull
   if (Array.isArray(snap.users)) {
@@ -241,6 +253,21 @@ export async function applyRemoteSnapshot(
       ];
     }
     setState({ users: merged });
+    // Invalidate sessions if PIN changed or user removed
+    try {
+      const sess = getState().session;
+      if (sess) {
+        const cloudUser = merged.find((u: any) => u.id === sess.id && u.is_active !== false);
+        if (
+          !cloudUser ||
+          (sess.pin_snapshot &&
+            cloudUser.pin &&
+            String(cloudUser.pin) !== String(sess.pin_snapshot))
+        ) {
+          setState({ session: null, cart: [] });
+        }
+      }
+    } catch { /* ignore */ }
   }
 
   if (skipBusinessRestore) {
@@ -360,8 +387,6 @@ export async function applyRemoteSnapshot(
   }
 
   if (snap.settings && typeof snap.settings === "object") {
-
-    // Keep this device theme + printer preference
     setState({
       settings: {
         ...s.settings,
@@ -370,6 +395,24 @@ export async function applyRemoteSnapshot(
           (snap.settings as any).till_number ?? s.settings?.till_number ?? "",
         theme: s.settings?.theme ?? "light",
         preferred_printer: s.settings?.preferred_printer ?? "",
+        auto_print_receipt: s.settings?.auto_print_receipt !== false,
+      },
+    });
+  } else if (snap.settings === null || (snap.settingsFetched && snap.settings == null)) {
+    // Cloud settings wiped (system reset) → defaults (keep this device theme/printer)
+    setState({
+      settings: {
+        business_name: "My Bar",
+        business_phone: "",
+        business_address: "",
+        business_location: "",
+        receipt_footer: "Thank you!",
+        thermal_width_mm: 80,
+        currency_symbol: "KSh",
+        date_format: "dd/MM/yyyy",
+        theme: s.settings?.theme || "light",
+        till_number: "",
+        preferred_printer: s.settings?.preferred_printer || "",
         auto_print_receipt: s.settings?.auto_print_receipt !== false,
       },
     });

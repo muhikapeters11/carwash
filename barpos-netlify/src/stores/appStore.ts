@@ -169,6 +169,7 @@ export const useAppStore = create<AppState>()(
           full_name: user.full_name,
           role: user.role,
           allowed_tabs: user.role === "admin" ? [...ALL_TABS] : user.allowed_tabs,
+          pin_snapshot: user.pin,
         };
         set({ session, activeTab: session.allowed_tabs[0] || "sell" });
         return true;
@@ -233,11 +234,13 @@ export const useAppStore = create<AppState>()(
           flushDexieSave(get() as any);
         });
         get().logActivity("Admin PIN reset", "via recovery code");
+        // Force re-login everywhere for admin accounts
+        set({ session: null, cart: [] });
         void import("@/stores/syncStore").then(({ useSyncStore }) => {
           const s = useSyncStore.getState();
           if (s.isOnline) void s.syncNow({ silent: true });
         });
-        return { ok: true, message: "Admin PIN updated. You can log in now." };
+        return { ok: true, message: "Admin PIN updated. Log in with the new PIN." };
       },
 
       logout: () => {
@@ -264,13 +267,20 @@ export const useAppStore = create<AppState>()(
       },
 
       updateProduct: (id, patch) => {
-        set({
-          products: get().products.map((p) =>
-            p.id === id ? { ...p, ...patch, updated_at: new Date().toISOString() } : p
-          ),
-        });
-        const prod = get().products.find((p) => p.id === id);
-        if (prod) enqueueSync("product_upsert", prod);
+        const now = new Date().toISOString();
+        const next = get().products.map((p) =>
+          p.id === id ? { ...p, ...patch, updated_at: now } : p
+        );
+        set({ products: next });
+        const prod = next.find((p) => p.id === id);
+        if (prod) {
+          enqueueSync("product_upsert", prod);
+          if (patch.image_url || prod.image_url) {
+            void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+              void forceCloudSync({ silent: true });
+            });
+          }
+        }
       },
 
       deleteProduct: (id) => {

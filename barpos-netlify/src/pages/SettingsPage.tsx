@@ -372,34 +372,6 @@ export function SettingsPage() {
         </div>
 
         <h2 className="font-bold text-[var(--text)]">Cloud sync</h2>
-        <p className="text-sm text-[var(--text-muted)]">
-          Connect Supabase so tills share sales and stock. Works offline; syncs when online.
-        </p>
-        <div className="text-xs text-[var(--text-muted)] space-y-1 font-mono break-all">
-          <div>Device: {deviceId}</div>
-          <div>Network: {isOnline ? "Online" : "Offline"}</div>
-          <div>
-            Queue: {pendingOps.filter((o) => o.status === "pending" || o.status === "failed").length} pending
-          </div>
-          {cloud.last_sync_at && (
-            <div>Last sync: {new Date(cloud.last_sync_at).toLocaleString()}</div>
-          )}
-          {cloud.last_sync_error && (
-            <div className="text-red-500">{cloud.last_sync_error}</div>
-          )}
-          {lastFailureDetail && (
-            <div className="text-red-500 text-xs break-all">Detail: {lastFailureDetail}</div>
-          )}
-          {pendingOps.some((o) => o.status === "failed") && (
-            <button
-              type="button"
-              onClick={() => clearFailedOps()}
-              className="text-xs underline text-[var(--text-muted)]"
-            >
-              Clear failed sync items (keeps local sales)
-            </button>
-          )}
-        </div>
         <label className="flex items-center gap-2 text-sm text-[var(--text)]">
           <input
             type="checkbox"
@@ -453,18 +425,10 @@ export function SettingsPage() {
             const r = await syncNow();
             setSyncMsg(r.message);
           }}
-          className="w-full py-3 rounded-xl bg-sky-600 text-white font-bold disabled:opacity-40"
+          className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-40"
         >
-          {isSyncing ? "Syncing…" : "Sync now / pull products"}
+          {isSyncing ? "…" : "Sync"}
         </button>
-        {syncMsg && (
-          <p className="text-sm text-[var(--text-muted)]">{syncMsg}</p>
-        )}
-        <p className="text-xs text-[var(--text-muted)]">
-          Setup steps: create a free Supabase project → SQL editor → run{" "}
-          <code className="text-[var(--text)]">supabase/schema.sql</code> → paste URL + anon key here
-          on <strong>every</strong> device. Use Pull products on the top bar on other tills. Enable Realtime for <code className="text-[var(--text)]">products</code> (Database → Replication).
-        </p>
       </section>
 
       <section className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] p-5 mb-4 max-w-lg space-y-2">

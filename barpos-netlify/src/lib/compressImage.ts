@@ -1,8 +1,8 @@
-/** Compress image data URL for cloud sync (Supabase payload limits) */
+/** Compress image data URL for cloud sync (Supabase row size limits) */
 export function compressImageDataUrl(
   dataUrl: string,
-  maxSide = 320,
-  quality = 0.7
+  maxSide = 200,
+  quality = 0.55
 ): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -20,7 +20,14 @@ export function compressImageDataUrl(
       }
       ctx.drawImage(img, 0, 0, w, h);
       try {
-        resolve(canvas.toDataURL("image/jpeg", quality));
+        const out = canvas.toDataURL("image/jpeg", quality);
+        // Cap ~120KB data URL to avoid Supabase payload failures
+        if (out.length > 160_000 && quality > 0.35) {
+          const smaller = canvas.toDataURL("image/jpeg", 0.35);
+          resolve(smaller.length < out.length ? smaller : out);
+        } else {
+          resolve(out);
+        }
       } catch {
         resolve(dataUrl);
       }

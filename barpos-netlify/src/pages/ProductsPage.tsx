@@ -58,7 +58,7 @@ export function ProductsPage() {
     const reader = new FileReader();
     reader.onload = async () => {
       const raw = reader.result as string;
-      const compressed = await compressImageDataUrl(raw, 320, 0.7);
+      const compressed = await compressImageDataUrl(raw, 200, 0.55);
       setImage(compressed);
     };
     reader.readAsDataURL(file);
@@ -92,6 +92,10 @@ export function ProductsPage() {
     } else {
       addProduct(payload);
     }
+    // Push image + product to cloud immediately when online
+    void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+      void forceCloudSync({ silent: true });
+    });
     setShowForm(false);
   };
 

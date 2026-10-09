@@ -228,4 +228,6 @@ export interface SessionUser {
   full_name: string;
   role: UserRole;
   allowed_tabs: AppTab[];
+  /** PIN at login — if cloud user.pin changes, force logout */
+  pin_snapshot?: string;
 }

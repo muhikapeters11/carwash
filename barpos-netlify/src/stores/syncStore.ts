@@ -235,11 +235,9 @@ export const useSyncStore = create<SyncState>()(
             } catch { /* ignore */ }
 
             const seedOps: { type: string; payload: unknown }[] = [];
-            if (!skipSeed && !(snap.products?.length) && (local.products?.length || 0) > 0) {
-              for (const prod of local.products) {
-                seedOps.push({ type: "product_upsert", payload: prod });
-              }
-            }
+            // Do NOT seed products when cloud is empty — that undoes "delete all products" / reset
+            // on other devices. New products still upload via pending product_upsert ops.
+
             if (!skipSeed && !(snap.users?.length) && (local.users?.length || 0) > 0) {
               for (const u of local.users) {
                 seedOps.push({ type: "user_upsert", payload: u });
