@@ -56,7 +56,7 @@ export function ReceiveStockPage() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg)] pb-16 md:pb-0">
+    <div className="flex flex-col h-full bg-[var(--bg)] pb-16 md:pb-0 touch-scroll">
       <div className="px-4 py-3 border-b border-[var(--border)]">
         <h1 className="text-xl font-bold text-[var(--text)]">Receive Stock</h1>
       </div>
@@ -88,7 +88,7 @@ export function ReceiveStockPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto touch-scroll p-4 overscroll-y-contain">
         {groups.map((g) => (
           <div key={g.category} className="mb-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-muted)] mb-3 border-b border-[var(--border)] pb-1">

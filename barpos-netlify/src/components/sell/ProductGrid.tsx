@@ -112,7 +112,7 @@ export function ProductGrid() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto touch-scroll p-4 overscroll-y-contain">
 {filtered.length === 0 ? (
           <div className="text-center py-16 text-[var(--text-muted)]">
             <p className="font-semibold">No products match</p>

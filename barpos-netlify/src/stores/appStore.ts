@@ -264,6 +264,9 @@ export const useAppStore = create<AppState>()(
         set({ products: [...get().products, product] });
         get().logActivity("Product added", product.name);
         enqueueSync("product_upsert", product);
+        void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+          void forceCloudSync({ silent: true });
+        });
       },
 
       updateProduct: (id, patch) => {
@@ -799,14 +802,34 @@ export const useAppStore = create<AppState>()(
       },
 
       markReceivesSeen: () => {
-        set({
-          stockReceives: get().stockReceives.map((r) => ({ ...r, seen_by_admin: true })),
+        const prev = get().stockReceives;
+        const changed = prev.filter((r) => !r.seen_by_admin);
+        if (!changed.length) return;
+        const next = prev.map((r) =>
+          r.seen_by_admin ? r : { ...r, seen_by_admin: true }
+        );
+        set({ stockReceives: next });
+        for (const r of changed) {
+          enqueueSync("stock_receive", { ...r, seen_by_admin: true });
+        }
+        void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+          void forceCloudSync({ silent: true });
         });
       },
 
       markAuditsSeen: () => {
-        set({
-          stockAudits: get().stockAudits.map((a) => ({ ...a, seen_by_admin: true })),
+        const prev = get().stockAudits;
+        const changed = prev.filter((a) => !a.seen_by_admin);
+        if (!changed.length) return;
+        const next = prev.map((a) =>
+          a.seen_by_admin ? a : { ...a, seen_by_admin: true }
+        );
+        set({ stockAudits: next });
+        for (const a of changed) {
+          enqueueSync("stock_audit", { ...a, seen_by_admin: true });
+        }
+        void import("@/stores/syncStore").then(({ forceCloudSync }) => {
+          void forceCloudSync({ silent: true });
         });
       },
 

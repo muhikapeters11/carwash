@@ -165,8 +165,18 @@ export function useProductRealtime() {
       onStockReceive: (row, event) => {
         if (event === "DELETE") return;
         const state = useAppStore.getState();
-        if (state.stockReceives.some((r) => r.id === row.id)) return;
-        // Log only — stock comes from onProduct
+        const existing = state.stockReceives.find((r) => r.id === row.id);
+        if (existing) {
+          // e.g. mark-as-read on another admin device
+          useAppStore.setState({
+            stockReceives: state.stockReceives.map((r) =>
+              r.id === row.id
+                ? { ...r, ...row, seen_by_admin: !!(row as any).seen_by_admin || r.seen_by_admin }
+                : r
+            ),
+          });
+          return;
+        }
         useAppStore.setState({
           stockReceives: [row as any, ...state.stockReceives],
         });
@@ -177,7 +187,17 @@ export function useProductRealtime() {
         const id = String(row.id || "");
         if (!id) return;
         const state = useAppStore.getState();
-        if (state.stockAudits.some((a) => a.id === id)) return;
+        const existing = state.stockAudits.find((a) => a.id === id);
+        if (existing) {
+          useAppStore.setState({
+            stockAudits: state.stockAudits.map((a) =>
+              a.id === id
+                ? { ...a, ...row, seen_by_admin: !!(row as any).seen_by_admin || a.seen_by_admin }
+                : a
+            ) as typeof state.stockAudits,
+          });
+          return;
+        }
         const audit = {
           id,
           product_id: String(row.product_id || ""),
@@ -191,7 +211,6 @@ export function useProductRealtime() {
           created_at: String(row.created_at || new Date().toISOString()),
           seen_by_admin: !!row.seen_by_admin,
         };
-        // Log only — stock comes from onProduct
         useAppStore.setState({
           stockAudits: [audit, ...state.stockAudits],
         });
@@ -245,7 +264,7 @@ export function useProductRealtime() {
       void import("@/stores/syncStore").then(({ forceCloudSync }) => {
         void forceCloudSync({ silent: true });
       });
-    }, 30_000);
+    }, 8_000); // fast monitor pull for multi-till
 
     return () => {
       window.clearInterval(reconnect);

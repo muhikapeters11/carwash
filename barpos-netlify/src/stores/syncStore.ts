@@ -378,7 +378,7 @@ if (typeof window !== "undefined") {
       if (online && isCloudReady(s.cloud)) {
         void forceCloudSync({ silent: true });
       }
-    }, 15000);
+    }, 8000);  // faster multi-device pull (~8s)
   }
 
   // Mobile browsers freeze timers in background — sync hard on resume

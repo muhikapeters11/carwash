@@ -277,3 +277,12 @@ body.kb-open .fixed.inset-0.sm\:items-center {
     overscroll-behavior-y: contain;
   }
 }
+
+
+/* touch-scroll-pan: native finger swipe scroll on POS pages */
+.touch-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}

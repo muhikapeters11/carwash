@@ -296,7 +296,7 @@ function App() {
       <OfflineBanner />
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
         <Sidebar />
-        <main className="flex-1 min-w-0 min-h-0 h-full overflow-y-auto md:overflow-hidden overscroll-y-contain pb-16 md:pb-0 [-webkit-overflow-scrolling:touch]">
+        <main className="flex-1 min-w-0 min-h-0 h-full overflow-y-auto md:overflow-hidden overscroll-y-contain touch-scroll pb-16 md:pb-0 [-webkit-overflow-scrolling:touch]">
           <Page />
         </main>
       </div>

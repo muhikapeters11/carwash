@@ -27,10 +27,6 @@ export function InventoryPage() {
     return { costValue, sellValue, profit: sellValue - costValue };
   }, [products]);
 
-  if (session.role === "admin") {
-    const unseen = stockAudits.filter((a) => !a.seen_by_admin);
-    if (unseen.length) markAuditsSeen();
-  }
 
   const submit = () => {
     if (!selected || newQty === "") return;
@@ -44,9 +40,36 @@ export function InventoryPage() {
     }
   };
 
+  const unseenAudits = isAdmin
+    ? stockAudits.filter((a) => !a.seen_by_admin)
+    : [];
+
   return (
-    <div className="h-full overflow-y-auto p-4 pb-24 md:pb-4 bg-[var(--bg)]">
+    <div className="h-full overflow-y-auto touch-scroll p-4 pb-24 md:pb-4 bg-[var(--bg)] overscroll-y-contain">
       <h1 className="text-xl font-bold mb-4 text-[var(--text)]">Inventory Audit</h1>
+      {unseenAudits.length > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-400 bg-amber-50 dark:bg-amber-900/25 p-4">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="font-bold text-amber-900 dark:text-amber-100">
+              Audits by staff ({unseenAudits.length})
+            </div>
+            <button
+              type="button"
+              onClick={() => markAuditsSeen()}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-white"
+            >
+              Mark as read
+            </button>
+          </div>
+          <div className="space-y-1 max-h-32 overflow-y-auto text-sm">
+            {unseenAudits.slice(0, 15).map((a) => (
+              <div key={a.id}>
+                <strong>{a.audited_by_name}</strong> set {a.product_name} → {a.new_qty}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Admin stock value summary */}
       {isAdmin && (
