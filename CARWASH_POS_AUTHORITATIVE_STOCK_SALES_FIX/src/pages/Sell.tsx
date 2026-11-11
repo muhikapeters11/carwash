@@ -72,11 +72,39 @@ export default function Sell() {
     setTimeout(() => setToast(''), 2500);
   };
 
+  const CATEGORY_ORDER: Category[] = ['beer', 'spirits', 'soft_drinks'];
+  const CATEGORY_LABEL: Record<Category, string> = {
+    beer: 'Beer',
+    spirits: 'Spirits',
+    soft_drinks: 'Soft Drinks',
+  };
+
   const filtered = useMemo(() => {
     let list = products.filter((p) => p.is_active !== false);
     if (category !== 'all') list = list.filter((p) => p.category === category);
-    return list.sort((a, b) => a.sku.localeCompare(b.sku));
+    return list.slice().sort((a, b) => {
+      const ca = CATEGORY_ORDER.indexOf(a.category);
+      const cb = CATEGORY_ORDER.indexOf(b.category);
+      if (ca !== cb) return ca - cb;
+      // Ascending SKU within each category
+      return String(a.sku || '').localeCompare(String(b.sku || ''), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    });
   }, [products, category]);
+
+  /** Sections for All view; single section when a category is selected. */
+  const productSections = useMemo(() => {
+    if (category !== 'all') {
+      return [{ id: category as Category, label: CATEGORY_LABEL[category as Category], items: filtered }];
+    }
+    return CATEGORY_ORDER.map((id) => ({
+      id,
+      label: CATEGORY_LABEL[id],
+      items: filtered.filter((p) => p.category === id),
+    })).filter((s) => s.items.length > 0);
+  }, [filtered, category]);
 
   const priceById = useMemo(() => {
     const m = new Map<string, number>();
@@ -113,8 +141,13 @@ export default function Sell() {
 
   const runSale = async (method: 'cash' | 'credit', name?: string) => {
     if (submitting || cart.length === 0) return;
+    if (method === 'credit' && !name?.trim()) {
+      flash('Creditor name required');
+      return;
+    }
+    // Snapshot only after success — a failed attempt must not become "repeat last sale".
+    const snapshot = cart.map((c) => ({ product: { ...c.product }, quantity: c.quantity }));
     setSubmitting(true);
-    setLastCartSnapshot(cart.map((c) => ({ product: { ...c.product }, quantity: c.quantity })));
     try {
       const result = await completeSaleFromCartAsync({
         method,
@@ -126,6 +159,7 @@ export default function Sell() {
         flash(result.error || 'Sale failed');
         return;
       }
+      setLastCartSnapshot(snapshot);
       setLastSale(result.sale);
       setShowCreditKeyboard(false);
       setCreditorName('');
@@ -242,49 +276,57 @@ export default function Sell() {
                   scanBarcode(barcode);
                 }
               }}
-              placeholder="SKU"
+              placeholder=""
               className="flex-1 outline-none text-sm bg-transparent"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 overflow-y-auto flex-1 pb-4">
-          {filtered.map((p) => {
-            const isLow = p.stock <= p.low_stock_threshold;
-            return (
-              <button
-                key={p.id}
-                onClick={() => {
-                  const r = addToCart(p.id);
-                  if (!r.ok) flash(r.error || 'Cannot add');
-                }}
-                disabled={p.stock <= 0}
-                className="relative bg-white rounded-xl shadow-sm border hover:shadow-md transition-shadow overflow-hidden flex flex-col disabled:opacity-50 min-h-[220px]"
-              >
-                <div
-                  className={`absolute top-2 left-2 z-10 px-2.5 py-1 rounded-full text-xs font-bold text-white ${
-                    isLow ? 'bg-red-500' : 'bg-green-500'
-                  }`}
-                >
-                  {p.stock}
-                </div>
-                <div className="flex-1 min-h-[140px] bg-gray-50 flex items-center justify-center overflow-hidden">
-                  <ProductImage src={p.image_url} name={p.name} category={p.category} className="w-full h-full object-contain p-2" />
-                </div>
-                <div className="p-3 text-left border-t bg-white">
-                  <div className="text-sm font-semibold truncate leading-tight">{p.name}</div>
-                  <div className="text-xs text-gray-400">{p.sku}</div>
-                  <div className="text-primary-600 font-bold text-base mt-0.5">
-                    {'KES'} {p.price.toFixed(0)}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-          {filtered.length === 0 && (
-            <div className="col-span-full text-center text-gray-500 py-12">
-              —
+        <div className="overflow-y-auto flex-1 pb-4 space-y-5">
+          {productSections.map((section) => (
+            <div key={section.id}>
+              <div className="sticky top-0 z-[5] bg-gray-100/95 backdrop-blur-sm px-1 py-1.5 mb-2 flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-gray-600">{section.label}</span>
+                <span className="flex-1 h-px bg-gray-300" />
+                <span className="text-xs text-gray-400">{section.items.length}</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {section.items.map((p) => {
+                  const isLow = p.stock <= p.low_stock_threshold;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        const r = addToCart(p.id);
+                        if (!r.ok) flash(r.error || 'Cannot add');
+                      }}
+                      disabled={p.stock <= 0}
+                      className="relative bg-white rounded-xl shadow-sm border hover:shadow-md transition-shadow overflow-hidden flex flex-col disabled:opacity-50 h-[240px]"
+                    >
+                      <div
+                        className={`absolute top-2 left-2 z-10 px-2.5 py-1 rounded-full text-xs font-bold text-white ${
+                          isLow ? 'bg-red-500' : 'bg-green-500'
+                        }`}
+                      >
+                        {p.stock}
+                      </div>
+                      <div className="h-[150px] w-full shrink-0 bg-gray-100 overflow-hidden">
+                        <ProductImage src={p.image_url} name={p.name} category={p.category} fit="contain" />
+                      </div>
+                      <div className="p-3 text-left border-t bg-white flex-1 min-h-0">
+                        <div className="font-semibold text-sm truncate">{p.name}</div>
+                        <div className="text-primary-600 font-bold text-sm mt-0.5">
+                          {settings.currency} {Number(p.price).toFixed(0)}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+          ))}
+          {filtered.length === 0 && (
+            <p className="p-8 text-center text-gray-400">—</p>
           )}
         </div>
       </div>
@@ -465,7 +507,7 @@ export default function Sell() {
               </div>
               <div className="flex justify-between font-bold text-base">
                 <span>TOTAL</span>
-                <span>{'KES'} {lastSale.total.toFixed(0)}</span>
+                <span>{settings.currency} {lastSale.total.toFixed(0)}</span>
               </div>
               <div className="text-xs mt-1 capitalize">
                 Payment: {lastSale.payment_method}

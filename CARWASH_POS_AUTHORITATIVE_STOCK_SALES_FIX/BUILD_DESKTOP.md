@@ -1,43 +1,41 @@
-# Build the Desktop App (Windows / macOS / Linux)
+# Desktop build (Electron)
 
-Desktop, web, and mobile **must use the same Supabase project**.  
-Vite now **bakes the production URL + anon key** into every Electron build (same values as Netlify), so the installer matches the live web app even if `.env` is missing.
-
-## Build installer
+Verified working path:
 
 ```bash
+# Use Node 18–22 (Node 24 may work but 20 LTS is recommended)
+node -v
+
+# Clean install (required after clone)
+rm -rf node_modules
 npm install
-npm run electron:dist
+
+# Web bundle (must succeed first)
+npm run build
+
+# Unpacked desktop app (fast test)
+npx electron-builder --dir
+
+# Installer (Windows NSIS / macOS DMG / Linux AppImage)
+npx electron-builder
+# or: npm run electron:dist
 ```
 
-Installer → `release/Carwash-Setup-*.exe` (Windows) or the platform equivalent.
+## Common `npm install` failures
 
-## Dev window
+1. **CI / Netlify / Vercel** – Electron downloads a ~100MB binary. This project sets `ELECTRON_SKIP_BINARY_DOWNLOAD=1` on Netlify so web deploys skip it. Local desktop builds must **not** set that variable.
 
-```bash
-npm run electron:dev
-```
+2. **Interrupted install** – Empty folders under `node_modules`. Fix:
+   ```bash
+   rm -rf node_modules package-lock.json
+   npm cache clean --force
+   npm install
+   ```
 
-## Login (same as web)
+3. **Windows path / antivirus** – Exclude the project folder from real-time scan during install.
 
-Use the **cloud admin/cashier PINs** (from Supabase), not old demo-only PINs, when the PC is online.
+4. **Node version** – Prefer Node 20 LTS. Avoid very new major versions if install scripts fail.
 
-| Role    | Typical cloud PIN (after seed/repair SQL) |
-|---------|-------------------------------------------|
-| Admin   | **233456** (or the PIN you set in Supabase) |
-| Cashier | **222222** |
+## Windowed fullscreen
 
-After one successful **online** login, that PIN is cached for offline use on this PC.
-
-## If desktop still shows different data
-
-1. Rebuild with `npm run electron:dist` (this package includes the cloud bake-in fix).
-2. Confirm the PC is **online** and the yellow/pink sync indicator is not red/offline.
-3. Sign out and sign in again with the **same cloud PIN** used on the phone/web.
-4. Optional: clear this PC’s local cache only — in the desktop app open DevTools (if available) or reinstall; cloud data is not deleted.
-5. Tap the header **refresh/sync** control after login.
-
-## Important
-
-- Do **not** build a custom desktop pointing at a different Supabase project than Netlify.
-- `ELECTRON=true` uses relative asset paths (`base: './'`) for `file://` loading.
+On start the desktop window is **maximized** (windowed fullscreen), not exclusive kiosk mode. See `electron/main.cjs`.

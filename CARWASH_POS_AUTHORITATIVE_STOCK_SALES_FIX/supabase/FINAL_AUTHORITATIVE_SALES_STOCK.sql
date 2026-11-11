@@ -28,12 +28,12 @@ declare
   v_discount numeric := 0;
   v_total numeric := 0;
   v_receipt text;
-  v_stock_updates json := '[]'::json;
-  v_line_items json := '[]'::json;
+  v_stock_updates jsonb := '[]'::jsonb;
+  v_line_items jsonb := '[]'::jsonb;
 begin
   -- Every app checkout supplies a stable UUID. It makes network retries safe.
   if p_client_sale_id is null then
-    return json_build_object('ok', false, 'error', 'Missing sale id. Please retry checkout.');
+    return jsonb_build_object('ok', false, 'error', 'Missing sale id. Please retry checkout.');
   end if;
   v_sale_id := p_client_sale_id;
 
@@ -43,17 +43,17 @@ begin
 
   select * into v_existing from public.sales where id = v_sale_id;
   if found then
-    select coalesce(json_agg(json_build_object('id', p.id, 'stock', p.stock)), '[]'::json)
+    select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'stock', p.stock)), '[]'::jsonb)
       into v_stock_updates
       from public.sale_items si
       join public.products p on p.id = si.product_id
      where si.sale_id = v_existing.id;
 
-    return json_build_object(
+    return jsonb_build_object(
       'ok', true,
       'duplicate', true,
       'stock_updates', v_stock_updates,
-      'sale', json_build_object(
+      'sale', jsonb_build_object(
         'id', v_existing.id,
         'receipt_no', v_existing.receipt_no,
         'total', v_existing.total,
@@ -65,7 +65,7 @@ begin
         'created_at', v_existing.created_at,
         'is_credit_collection', v_existing.is_credit_collection,
         'items', coalesce((
-          select json_agg(json_build_object(
+          select jsonb_agg(jsonb_build_object(
             'product_id', si.product_id,
             'name', si.product_name,
             'qty', si.quantity,
@@ -79,16 +79,16 @@ begin
   end if;
 
   if p_method is null or p_method not in ('cash', 'credit') then
-    return json_build_object('ok', false, 'error', 'Invalid payment method.');
+    return jsonb_build_object('ok', false, 'error', 'Invalid payment method.');
   end if;
   if p_method = 'credit' and coalesce(length(trim(p_creditor_name)), 0) = 0 then
-    return json_build_object('ok', false, 'error', 'Creditor name is required.');
+    return jsonb_build_object('ok', false, 'error', 'Creditor name is required.');
   end if;
   if coalesce(p_discount_percent, 0) < 0 or coalesce(p_discount_percent, 0) > 100 then
-    return json_build_object('ok', false, 'error', 'Discount must be between 0 and 100 percent.');
+    return jsonb_build_object('ok', false, 'error', 'Discount must be between 0 and 100 percent.');
   end if;
   if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
-    return json_build_object('ok', false, 'error', 'Cart is empty.');
+    return jsonb_build_object('ok', false, 'error', 'Cart is empty.');
   end if;
 
   -- Validate and lock each distinct product in stable UUID order. Duplicate
@@ -100,7 +100,7 @@ begin
      order by x.product_id
   loop
     if v_item.product_id is null or v_item.qty is null or v_item.qty <= 0 then
-      return json_build_object('ok', false, 'error', 'Invalid product or quantity.');
+      return jsonb_build_object('ok', false, 'error', 'Invalid product or quantity.');
     end if;
 
     select * into v_product
@@ -109,10 +109,10 @@ begin
      for update;
 
     if not found or v_product.is_active is false then
-      return json_build_object('ok', false, 'error', 'A product is unavailable.');
+      return jsonb_build_object('ok', false, 'error', 'A product is unavailable.');
     end if;
     if coalesce(v_product.stock, 0) < v_item.qty then
-      return json_build_object(
+      return jsonb_build_object(
         'ok', false,
         'error', v_product.name || ': only ' || coalesce(v_product.stock, 0)::text || ' in stock.'
       );
@@ -124,7 +124,8 @@ begin
 
   v_discount := round(v_subtotal * coalesce(p_discount_percent, 0) / 100.0, 2);
   v_total := greatest(0, round(v_subtotal - v_discount, 2));
-  v_receipt := 'R' || to_char(clock_timestamp(), 'YYMMDDHH24MISS') || upper(substr(replace(v_sale_id::text, '-', ''), 1, 5));
+  -- Deterministic from sale id so offline-printed receipts match the server receipt.
+  v_receipt := 'R' || upper(substr(replace(v_sale_id::text, '-', ''), 1, 12));
 
   -- All following writes are part of this one PostgreSQL transaction.
   insert into public.sales (
@@ -154,10 +155,10 @@ begin
       v_sale_id, v_product.id, v_product.name, v_item.qty, v_product.price, v_product.cost
     );
 
-    v_stock_updates := v_stock_updates || json_build_array(
-      json_build_object('id', v_product.id, 'stock', v_product.stock)
+    v_stock_updates := v_stock_updates || jsonb_build_array(
+      jsonb_build_object('id', v_product.id, 'stock', v_product.stock)
     );
-    v_line_items := v_line_items || json_build_array(json_build_object(
+    v_line_items := v_line_items || jsonb_build_array(jsonb_build_object(
       'product_id', v_product.id,
       'name', v_product.name,
       'qty', v_item.qty,
@@ -167,7 +168,7 @@ begin
   end loop;
 
   if v_discount > 0 then
-    v_line_items := v_line_items || json_build_array(json_build_object(
+    v_line_items := v_line_items || jsonb_build_array(jsonb_build_object(
       'product_id', '_discount', 'name', 'Discount', 'qty', 1, 'price', -v_discount, 'cost', 0
     ));
   end if;
@@ -177,11 +178,11 @@ begin
     values (trim(p_creditor_name), v_total, 0, v_sale_id);
   end if;
 
-  return json_build_object(
+  return jsonb_build_object(
     'ok', true,
     'duplicate', false,
     'stock_updates', v_stock_updates,
-    'sale', json_build_object(
+    'sale', jsonb_build_object(
       'id', v_sale_id,
       'receipt_no', v_receipt,
       'total', v_total,
@@ -201,6 +202,55 @@ $$;
 revoke all on function public.complete_sale(uuid, text, text, text, numeric, jsonb, uuid) from public;
 grant execute on function public.complete_sale(uuid, text, text, text, numeric, jsonb, uuid)
   to anon, authenticated, service_role;
+
+
+-- Hard stop on negative stock (defence in depth; complete_sale already validates).
+do $$
+begin
+  alter table public.products
+    drop constraint if exists products_stock_non_negative;
+  alter table public.products
+    add constraint products_stock_non_negative check (stock >= 0);
+exception
+  when others then
+    raise notice 'Could not add products_stock_non_negative: %', SQLERRM;
+end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- Product images: public Storage bucket so every device loads the same photo
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'product-images',
+  'product-images',
+  true,
+  2097152,
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists product_images_public_read on storage.objects;
+create policy product_images_public_read on storage.objects
+  for select using (bucket_id = 'product-images');
+
+drop policy if exists product_images_anon_insert on storage.objects;
+create policy product_images_anon_insert on storage.objects
+  for insert to anon, authenticated with check (bucket_id = 'product-images');
+
+drop policy if exists product_images_anon_update on storage.objects;
+create policy product_images_anon_update on storage.objects
+  for update to anon, authenticated
+  using (bucket_id = 'product-images')
+  with check (bucket_id = 'product-images');
+
+drop policy if exists product_images_anon_delete on storage.objects;
+create policy product_images_anon_delete on storage.objects
+  for delete to anon, authenticated
+  using (bucket_id = 'product-images');
 
 -- Stock changes must notify all connected POS clients.
 do $$

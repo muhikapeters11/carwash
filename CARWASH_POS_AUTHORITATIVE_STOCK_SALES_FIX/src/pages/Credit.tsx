@@ -121,7 +121,7 @@ export default function Credit() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search customer…"
+            placeholder=""
             className="w-full pl-9 pr-3 py-2 border rounded-xl text-sm"
           />
         </div>

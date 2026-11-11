@@ -40,8 +40,11 @@ const emptyPull = (): PullResult => ({
 });
 
 function mapProduct(r: any, prevImage?: string): Product {
-  const img = r.image_url || prevImage || undefined;
-  // Avoid keeping multi‑MB base64 in tight loops — keep reference only
+  const cloudImg = r.image_url ? String(r.image_url) : '';
+  const cloudIsDurable = cloudImg.startsWith('http://') || cloudImg.startsWith('https://');
+  // Prefer durable Storage URLs from the cloud; fall back to the previous local
+  // image (including data: URLs still waiting to upload) so photos survive refresh.
+  const img = cloudIsDurable ? cloudImg : (cloudImg || prevImage || undefined);
   return {
     id: String(r.id),
     sku: String(r.sku),
@@ -374,10 +377,20 @@ export async function pushLocalProductsIfNeeded(local: Product[]): Promise<numbe
     if (isProductTombstoned(p.id)) continue;
     const remote = byId.get(p.id) || bySku.get(p.sku.toLowerCase());
     if (remote) {
-      // Backfill legacy locally-cached photos that were never uploaded because
-      // their original base64 strings exceeded the old size cutoff.
       // Existing product rows are cloud-authoritative for stock. Never upsert a
       // local full-row snapshot during bootstrap: it could undo sales on another device.
+      // But DO backfill product photos that exist only as local data: URLs / never reached Storage.
+      const remoteImg = remote.image_url ? String(remote.image_url) : '';
+      const localImg = p.image_url ? String(p.image_url) : '';
+      const needsImageBackfill =
+        !!localImg &&
+        (localImg.startsWith('data:image/') || !remoteImg) &&
+        (!remoteImg || remoteImg.startsWith('data:image/'));
+      if (needsImageBackfill) {
+        const res = await pushProductPatch(p.id, { image_url: localImg });
+        if (res.ok) n += 1;
+        else failed = true;
+      }
       continue;
     }
     const res = await pushProduct(p);
@@ -388,60 +401,87 @@ export async function pushLocalProductsIfNeeded(local: Product[]): Promise<numbe
 }
 
 
-export async function pushProductPatch(id: string, patch: Partial<Product>): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Upload a data: URL (or pass through an http URL) to Supabase Storage and
+ * return the public URL. All devices then load the same durable image.
+ */
+export async function resolveProductImageUrl(
+  productId: string,
+  imageUrl: string | undefined | null
+): Promise<{ ok: true; url: string | undefined } | { ok: false; error: string }> {
+  if (!imageUrl) return { ok: true, url: undefined };
+  if (!imageUrl.startsWith('data:image/')) return { ok: true, url: imageUrl };
+  if (!isSupabaseConfigured) return { ok: false, error: 'not configured' };
+  try {
+    const cachedImage = uploadedImageUrls.get(productId);
+    let publicUrl = cachedImage?.source === imageUrl ? cachedImage.url : undefined;
+    if (!publicUrl) {
+      let blob = await (await fetch(imageUrl)).blob();
+      if (blob.size > 180_000 && typeof createImageBitmap === 'function') {
+        const bitmap = await createImageBitmap(blob);
+        const scale = Math.min(1, 720 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          const compressed = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob(resolve, 'image/jpeg', 0.72)
+          );
+          if (compressed && compressed.size < blob.size) blob = compressed;
+        }
+        bitmap.close();
+      }
+      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      const path = `${productId}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from('product-images').upload(path, blob, {
+        upsert: true,
+        contentType: blob.type || 'image/jpeg',
+        cacheControl: '3600',
+      });
+      if (uploadError) throw uploadError;
+      publicUrl = supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+      if (!publicUrl) throw new Error('Storage did not return a public image URL');
+      uploadedImageUrls.set(productId, { source: imageUrl, url: publicUrl });
+    }
+    return { ok: true, url: publicUrl };
+  } catch (e: any) {
+    return { ok: false, error: `Product image upload failed: ${e?.message || 'storage unavailable'}` };
+  }
+}
+
+export async function pushProductPatch(id: string, patch: Partial<Product>): Promise<{ ok: boolean; error?: string; imageUrl?: string }> {
   if (!isSupabaseConfigured) return { ok: false, error: 'not configured' };
   const allowed: Record<string, unknown> = {};
   const keys: (keyof Product)[] = ['sku','name','category','price','cost','low_stock_threshold','is_barrel','barrel_cups','is_active'];
   for (const key of keys) if (patch[key] !== undefined) allowed[key] = patch[key];
-  // Never upload a base64 image through a row update. Existing cloud image remains
-  // intact; normal URL image changes can be applied directly.
-  if (patch.image_url && !patch.image_url.startsWith('data:image/')) allowed.image_url = patch.image_url;
-  if (!Object.keys(allowed).length) return { ok: true };
-  const { error } = await supabase.from('products').update({ ...allowed, updated_at: new Date().toISOString() }).eq('id', id);
-  return error ? { ok: false, error: error.message } : { ok: true };
-}
 
-export async function pushProduct(p: Product): Promise<{ ok: boolean; error?: string }> {
-  if (!isSupabaseConfigured) return { ok: false, error: 'not configured' };
-  let cloudImageUrl = p.image_url || null;
-  if (cloudImageUrl?.startsWith('data:image/')) {
-    try {
-      const cachedImage = uploadedImageUrls.get(p.id);
-      let publicUrl = cachedImage?.source === cloudImageUrl ? cachedImage.url : undefined;
-      if (!publicUrl) {
-        let blob = await (await fetch(cloudImageUrl)).blob();
-        // Also repair legacy, oversized photos already stored in local cache.
-        if (blob.size > 180_000 && typeof createImageBitmap === 'function') {
-          const bitmap = await createImageBitmap(blob);
-          const scale = Math.min(1, 720 / Math.max(bitmap.width, bitmap.height));
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-          canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-            const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.72));
-            if (compressed && compressed.size < blob.size) blob = compressed;
-          }
-          bitmap.close();
-        }
-        const ext = blob.type.includes('png') ? 'png' : 'jpg';
-        const path = `${p.id}.${ext}`;
-        const { error: uploadError } = await supabase.storage.from('product-images').upload(path, blob, {
-          upsert: true, contentType: blob.type || 'image/jpeg', cacheControl: '3600',
-        });
-        if (uploadError) throw uploadError;
-        publicUrl = supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl;
-        if (!publicUrl) throw new Error('Storage did not return a public image URL');
-        uploadedImageUrls.set(p.id, { source: cloudImageUrl, url: publicUrl });
-      }
-      if (!publicUrl) throw new Error('Product image URL is unavailable');
-      cloudImageUrl = publicUrl;
-    } catch (e: any) {
-      return { ok: false, error: `Product image upload failed: ${e?.message || 'storage unavailable'}` };
+  let resolvedImage: string | undefined;
+  if (patch.image_url !== undefined) {
+    if (patch.image_url === '' || patch.image_url === null) {
+      allowed.image_url = null;
+      resolvedImage = undefined;
+    } else {
+      const img = await resolveProductImageUrl(id, patch.image_url);
+      if (!img.ok) return { ok: false, error: img.error };
+      allowed.image_url = img.url || null;
+      resolvedImage = img.url;
     }
   }
+
+  if (!Object.keys(allowed).length) return { ok: true, imageUrl: resolvedImage };
+  const { error } = await supabase.from('products').update({ ...allowed, updated_at: new Date().toISOString() }).eq('id', id);
+  return error ? { ok: false, error: error.message } : { ok: true, imageUrl: resolvedImage };
+}
+
+export async function pushProduct(p: Product): Promise<{ ok: boolean; error?: string; imageUrl?: string }> {
+  if (!isSupabaseConfigured) return { ok: false, error: 'not configured' };
+  const resolved = await resolveProductImageUrl(p.id, p.image_url);
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+  let cloudImageUrl = resolved.url || null;
   const row: any = {
     id: p.id,
     sku: p.sku,
@@ -460,7 +500,7 @@ export async function pushProduct(p: Product): Promise<{ ok: boolean; error?: st
   };
   const { error } = await supabase.from('products').upsert(row);
   if (error) return { ok: false, error: error.message };
-  return { ok: true };
+  return { ok: true, imageUrl: cloudImageUrl || undefined };
 }
 
 export async function deleteProductRemote(id: string): Promise<{ ok: boolean; error?: string }> {

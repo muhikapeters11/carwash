@@ -27,6 +27,47 @@ const Users = lazy(() => import('./pages/Users'));
 const ActivityLog = lazy(() => import('./pages/ActivityLog'));
 const Settings = lazy(() => import('./pages/Settings'));
 
+
+/** Reverse a locally-pending sale that the server permanently rejected. */
+function handleRejectedOfflineSale(
+  localId: string,
+  error: string,
+  items: { product_id: string; qty: number }[]
+) {
+  useStore.setState((s) => {
+    const qtyByProduct = new Map<string, number>();
+    for (const line of items) {
+      if (!line?.product_id) continue;
+      qtyByProduct.set(
+        line.product_id,
+        (qtyByProduct.get(line.product_id) || 0) + Number(line.qty || 0)
+      );
+    }
+    return {
+      // Restore stock that was optimistically deducted offline.
+      products: s.products.map((p) =>
+        qtyByProduct.has(p.id)
+          ? { ...p, stock: Number(p.stock) + (qtyByProduct.get(p.id) || 0) }
+          : p
+      ),
+      // Drop the ghost sale from local history.
+      sales: s.sales.filter((sale) => sale.id !== localId),
+      // Also drop any local credit created for that offline sale.
+      credits: s.credits.filter((c) => c.sale_id !== localId),
+    };
+  });
+  try {
+    useStore.getState().addNotification({
+      title: 'Offline sale not synced',
+      message: `A pending sale could not be accepted by the server (${error}). Local stock was restored.`,
+      type: 'sale',
+      related_id: localId,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Awaited<ReturnType<typeof pullAllData>>>) {
   const st = useStore.getState();
   let cloudResetDetected = false;
@@ -190,10 +231,26 @@ function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Await
           if (typeof guard.cost === 'number') next.cost = guard.cost;
           if (typeof guard.name === 'string') next.name = guard.name;
         }
-        // Keep optimistic stock only while a stock receive/audit outbox job is pending.
-        // Metadata guards above are independent; never let a generic edit freeze stock.
+        // Keep optimistic stock while a pending outbox job (sale / receive / audit)
+        // still owns this product. Metadata guards above are independent.
         if (local && pendingIds.has(cloudP.id) && Number(local.stock) !== Number(next.stock)) {
           next = { ...next, stock: local.stock };
+        }
+        // Product photos: prefer a durable cloud URL. If the cloud row has no
+        // image yet (or only a stale data: URL) but this device still has a
+        // local photo, keep the local image until Storage upload finishes.
+        if (local?.image_url) {
+          const cloudImg = next.image_url ? String(next.image_url) : '';
+          const localImg = String(local.image_url);
+          const cloudIsDurable = cloudImg.startsWith('http://') || cloudImg.startsWith('https://');
+          const localIsData = localImg.startsWith('data:image/');
+          if (!cloudIsDurable && localImg) {
+            next = { ...next, image_url: localImg };
+          } else if (cloudIsDurable) {
+            next = { ...next, image_url: cloudImg };
+          } else if (localIsData) {
+            next = { ...next, image_url: localImg };
+          }
         }
         return next;
       });
@@ -265,17 +322,20 @@ export default function App() {
         }
       }
       applyPull(data);
-      await flushOfflineQueue((localId, serverSale, stockUpdates) => {
-        useStore.setState((s) => {
-          const stockMap = new Map((stockUpdates || []).map((u) => [u.id, u.stock]));
-          return {
-            sales: s.sales.map((x) => (x.id === localId ? serverSale : x)),
-            products: s.products.map((p) =>
-              stockMap.has(p.id) ? { ...p, stock: stockMap.get(p.id)! } : p
-            ),
-          };
-        });
-      });
+      await flushOfflineQueue(
+        (localId, serverSale, stockUpdates) => {
+          useStore.setState((s) => {
+            const stockMap = new Map((stockUpdates || []).map((u) => [u.id, u.stock]));
+            return {
+              sales: s.sales.map((x) => (x.id === localId ? serverSale : x)),
+              products: s.products.map((p) =>
+                stockMap.has(p.id) ? { ...p, stock: stockMap.get(p.id)! } : p
+              ),
+            };
+          });
+        },
+        handleRejectedOfflineSale
+      );
     } catch (e) {
       console.warn('full sync failed', e);
     } finally {
@@ -296,20 +356,25 @@ export default function App() {
       applyPull(data);
       // Reconcile offline sales through the same atomic RPC and immediately apply
       // the authoritative sale + stock returned by Supabase on every sync path.
-      const flushed = await flushOfflineQueue((localId, serverSale, stockUpdates) => {
-        useStore.setState((s) => {
-          const stockMap = new Map((stockUpdates || []).map((u) => [u.id, u.stock]));
-          return {
-            sales: s.sales.map((x) => (x.id === localId ? serverSale : x)),
-            products: s.products.map((p) =>
-              stockMap.has(p.id) ? { ...p, stock: stockMap.get(p.id)! } : p
-            ),
-          };
-        });
-      });
-      // Pull once more after any queued sale commits so the screen reflects the
-      // persisted database state, not a provisional local snapshot.
-      if (flushed.sales > 0) applyPull(await pullHotData(useStore.getState().products));
+      const flushed = await flushOfflineQueue(
+        (localId, serverSale, stockUpdates) => {
+          useStore.setState((s) => {
+            const stockMap = new Map((stockUpdates || []).map((u) => [u.id, u.stock]));
+            return {
+              sales: s.sales.map((x) => (x.id === localId ? serverSale : x)),
+              products: s.products.map((p) =>
+                stockMap.has(p.id) ? { ...p, stock: stockMap.get(p.id)! } : p
+              ),
+            };
+          });
+        },
+        handleRejectedOfflineSale
+      );
+      // Pull once more after any queued sale commits (or is rejected) so the
+      // screen reflects the persisted database state.
+      if (flushed.sales > 0 || flushed.rejected > 0) {
+        applyPull(await pullHotData(useStore.getState().products));
+      }
     } catch (e) {
       console.warn('hot sync failed', e);
     } finally {

@@ -42,23 +42,23 @@ export default function Dashboard() {
             (s.is_credit_collection || s.payment_method === 'credit_collection') &&
             isCurrentBusinessDay(s.created_at)
         )
-        .reduce((sum, s) => sum + s.total, 0),
+        .reduce((sum, s) => sum + (Number(s.total) || 0), 0),
     [sales]
   );
 
-  const grossSales = salesToShow.reduce((sum, s) => sum + s.total, 0);
-  const totalCost = salesToShow.reduce((sum, s) => sum + s.cost_total, 0);
+  const grossSales = salesToShow.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+  const totalCost = salesToShow.reduce((sum, s) => sum + (Number(s.cost_total) || 0), 0);
   const grossProfit = grossSales - totalCost;
   const periodExpenses = expenses
     .filter((e) => isCurrentBusinessDay(e.created_at))
-    .reduce((sum, e) => sum + e.amount, 0);
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const netProfit = grossProfit - periodExpenses;
   const creditGiven = salesToShow
     .filter((s) => s.payment_method === 'credit')
-    .reduce((sum, s) => sum + s.total, 0);
+    .reduce((sum, s) => sum + (Number(s.total) || 0), 0);
   const cashSales = salesToShow
     .filter((s) => s.payment_method === 'cash')
-    .reduce((sum, s) => sum + s.total, 0);
+    .reduce((sum, s) => sum + (Number(s.total) || 0), 0);
 
   // Admin: previous calendar business days totals (last 7 business starts)
   const previousDays = useMemo(() => {
@@ -101,7 +101,7 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold text-gray-800">
           {isAdmin ? 'Dashboard' : 'My Sales'}
         </h1>
-        <p className="text-xs text-gray-500" title="Business day window">
+        <p className="text-xs text-gray-500">
           Business day: {businessDayLabel()}
         </p>
       </div>

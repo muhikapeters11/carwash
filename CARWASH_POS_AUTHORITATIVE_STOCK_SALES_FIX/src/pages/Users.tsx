@@ -120,7 +120,7 @@ export default function Users() {
 
       if (insErr) {
         console.error('Cloud cashier creation failed:', insErr);
-        alert(`Could not create cashier in Supabase: ${insErr.message}. No local-only account was created.`);
+        alert(`Could not create cashier in Supabase: ${insErr.message}. `);
         return;
       } else if (inserted?.id) {
         // Update PIN using server-side bcrypt. Never leave a SHA-256 placeholder
@@ -140,7 +140,7 @@ export default function Users() {
         setAddStep('name');
         return;
       } else {
-        alert('Supabase did not return the new cashier profile. Please refresh and try again.');
+        alert('Could not create user.');
         return;
       }
     }
@@ -192,7 +192,7 @@ export default function Users() {
 
       {allStaff.length === 0 && (
         <p className="text-gray-500 text-center py-8">
-          No users loaded. {isSupabaseConfigured ? 'Click Refresh or run schema.sql seed.' : 'Demo mode — add a cashier.'}
+          —
         </p>
       )}
 
@@ -353,13 +353,13 @@ export default function Users() {
                   onChange={setNewEmail}
                   onConfirm={() => setAddStep('pin')}
                   onCancel={() => setAddStep('name')}
-                  title="Email (optional)"
+                  title="Email"
                 />
               </>
             )}
             {addStep === 'pin' && (
               <>
-                <p className="text-sm text-gray-500">Enter 6-digit PIN</p>
+                
                 <div className="bg-gray-900 rounded-xl overflow-hidden">
                   <NumericPad
                     value={newPin}

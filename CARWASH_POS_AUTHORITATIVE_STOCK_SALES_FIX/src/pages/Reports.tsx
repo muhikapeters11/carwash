@@ -1,9 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../store/useStore';
 import {
-  isThisWeek, isThisMonth, parseISO, getHours, format, subDays
+  parseISO, getHours, format, subDays
 } from 'date-fns';
-import { isCurrentBusinessDay } from '../utils/businessDay';
+import {
+  isCurrentBusinessDay,
+  isInCurrentBusinessWeek,
+  isInCurrentBusinessMonth,
+} from '../utils/businessDay';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, AreaChart, Area
@@ -23,10 +27,10 @@ export default function Reports() {
   const filteredSales = useMemo(() => {
     return sales.filter((s) => {
       if (s.is_credit_collection || s.payment_method === 'credit_collection') return false;
-      const d = parseISO(s.created_at);
+      if (!s.created_at) return false;
       if (period === 'daily') return isCurrentBusinessDay(s.created_at);
-      if (period === 'weekly') return isThisWeek(d);
-      return isThisMonth(d);
+      if (period === 'weekly') return isInCurrentBusinessWeek(s.created_at);
+      return isInCurrentBusinessMonth(s.created_at);
     });
   }, [sales, period]);
 
@@ -40,19 +44,19 @@ export default function Reports() {
     });
   }, [sales]);
 
-  const totalSales = filteredSales.reduce((s, x) => s + x.total, 0);
-  const totalCost = filteredSales.reduce((s, x) => s + x.cost_total, 0);
+  const totalSales = filteredSales.reduce((s, x) => s + (Number(x.total) || 0), 0);
+  const totalCost = filteredSales.reduce((s, x) => s + (Number(x.cost_total) || 0), 0);
   const profit = totalSales - totalCost;
   const margin = totalSales > 0 ? (profit / totalSales) * 100 : 0;
   const avgTicket = filteredSales.length ? totalSales / filteredSales.length : 0;
   const periodExpenses = expenses
     .filter((e) => {
-      const d = parseISO(e.created_at);
+      if (!e.created_at) return false;
       if (period === 'daily') return isCurrentBusinessDay(e.created_at);
-      if (period === 'weekly') return isThisWeek(d);
-      return isThisMonth(d);
+      if (period === 'weekly') return isInCurrentBusinessWeek(e.created_at);
+      return isInCurrentBusinessMonth(e.created_at);
     })
-    .reduce((sum, e) => sum + e.amount, 0);
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
   // Product stats
   const productStats: Record<string, { name: string; qty: number; revenue: number }> = {};
@@ -72,7 +76,7 @@ export default function Reports() {
   const hourMap: Record<number, number> = {};
   filteredSales.forEach((s) => {
     const h = getHours(parseISO(s.created_at));
-    hourMap[h] = (hourMap[h] || 0) + s.total;
+    hourMap[h] = (hourMap[h] || 0) + (Number(s.total) || 0);
   });
   const hourData = Array.from({ length: 24 }, (_, h) => ({
     hour: String(h).padStart(2, '0'),
@@ -84,7 +88,7 @@ export default function Reports() {
   const dayMap: Record<string, number> = {};
   last7ProductSales.forEach((s) => {
     const key = format(parseISO(s.created_at), 'EEE dd');
-    dayMap[key] = (dayMap[key] || 0) + s.total;
+    dayMap[key] = (dayMap[key] || 0) + (Number(s.total) || 0);
   });
   // Build ordered last 7 days
   const dayData = Array.from({ length: 7 }, (_, i) => {
@@ -113,8 +117,16 @@ export default function Reports() {
   // Better: use products sorted by stock desc as "most available / restocked"
   const restockMap: Record<string, { name: string; qty: number }> = {};
   stockReceives.forEach((r) => {
+    if (!r.created_at) return;
+    const inPeriod =
+      period === 'daily'
+        ? isCurrentBusinessDay(r.created_at)
+        : period === 'weekly'
+          ? isInCurrentBusinessWeek(r.created_at)
+          : isInCurrentBusinessMonth(r.created_at);
+    if (!inPeriod) return;
     if (!restockMap[r.product_id]) restockMap[r.product_id] = { name: r.product_name, qty: 0 };
-    restockMap[r.product_id].qty += r.quantity;
+    restockMap[r.product_id].qty += Number(r.quantity) || 0;
   });
   const mostRestocked = Object.values(restockMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
   const mostStocked = mostRestocked.length
@@ -126,7 +138,7 @@ export default function Reports() {
     filteredSales.forEach((s) => {
       const key = s.cashier_id || s.cashier_name || 'unknown';
       if (!map[key]) map[key] = { name: s.cashier_name || key, total: 0, tx: 0 };
-      map[key].total += s.total;
+      map[key].total += Number(s.total) || 0;
       map[key].tx += 1;
     });
     return Object.values(map).sort((a, b) => b.total - a.total);

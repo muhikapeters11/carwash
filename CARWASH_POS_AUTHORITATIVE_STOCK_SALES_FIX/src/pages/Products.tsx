@@ -195,7 +195,7 @@ export default function Products() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name or SKU…"
+          placeholder=""
           className="ml-auto px-3 py-2 border rounded-xl text-sm min-w-[180px]"
         />
       </div>

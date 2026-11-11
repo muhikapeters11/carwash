@@ -262,7 +262,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {!online && (
         <div className="bg-amber-500 text-amber-950 text-center text-sm font-medium px-3 py-1.5">
-          Offline — sales are saved on this device and will sync when you are back online
+          Offline
         </div>
       )}
 

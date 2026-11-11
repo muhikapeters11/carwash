@@ -11,8 +11,8 @@
   npm_config_ignore_scripts = "true"
   # Vite env baked into the browser bundle at build time
   VITE_ALLOW_DEMO = "false"
-  VITE_SUPABASE_URL = "https://wrtmswnfgutlmkjzdzaj.supabase.co"
-  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndydG1zd25mZ3V0bG1ranpkemFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxODk0MjQsImV4cCI6MjEwOTc2NTQyNH0.y9jMZnWY5A5py9Vrvkkow6OFAwIQkpgbOFPPWFK77DQ"
+  VITE_SUPABASE_URL = "https://tvjdblbxmlteszcigckj.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2amRibGJ4bWx0ZXN6Y2lnY2tqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0MjQ5MzgsImV4cCI6MjExMDAwMDkzOH0.A5xHZivqWlyegdBcrwF_vsjFFkOVik9fODIdmnWXUcI"
 
 # SPA routing
 [[redirects]]

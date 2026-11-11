@@ -1,4 +1,20 @@
 -- =============================================================================
+-- !!! DEPRECATED — DO NOT RUN THIS FILE !!!
+-- =============================================================================
+-- This script contains an older complete_sale definition that WILL OVERWRITE
+-- the authoritative atomic stock-deduction RPC.
+--
+-- Use ONLY:
+--   supabase/FINAL_AUTHORITATIVE_SALES_STOCK.sql
+--
+-- This file is kept only for historical reference and was moved/quarantined
+-- as part of the stock-deduction persistence hardening.
+-- =============================================================================
+
+-- NOTE: This all-in-one bootstrap still embeds an older complete_sale.
+-- After running any bootstrap, ALWAYS re-run FINAL_AUTHORITATIVE_SALES_STOCK.sql.
+
+-- =============================================================================
 -- Pub POS — ALL-IN-ONE SQL
 -- Includes hard_delete_product, clear_products_and_reports, factory_reset_cloud,
 -- fixed complete_sale, RLS, seed (upsert, no profile FK breaks)

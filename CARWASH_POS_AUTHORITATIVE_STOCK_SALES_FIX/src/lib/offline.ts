@@ -215,20 +215,54 @@ export function enqueueProduct(product: Product): void {
   if (!isSupabaseConfigured) return;
   if (!isOnline()) { queueLatestProduct(product); return; }
   // Failed online writes are queued instead of being silently lost.
-  void pushProduct(product).then((res) => { if (!res.ok) queueLatestProduct(product); })
+  void pushProduct(product)
+    .then(async (res) => {
+      if (!res.ok) {
+        queueLatestProduct(product);
+        return;
+      }
+      const publicUrl = (res as { imageUrl?: string }).imageUrl;
+      if (publicUrl && product.image_url?.startsWith('data:image/')) {
+        try {
+          const { useStore } = await import('../store/useStore');
+          useStore.setState((s) => ({
+            products: s.products.map((p) =>
+              p.id === product.id ? { ...p, image_url: publicUrl } : p
+            ),
+          }));
+        } catch {
+          /* ignore */
+        }
+      }
+    })
     .catch(() => queueLatestProduct(product));
 }
 
 let flushing = false;
+
+/** Permanent business failures — do not keep retrying forever. */
+function isPermanentSaleRejection(error: string | undefined): boolean {
+  if (!error) return false;
+  return /in stock|unavailable|Invalid product|Cart is empty|Missing sale id|Creditor name|Invalid payment|Discount must/i.test(
+    error
+  );
+}
+
+const MAX_SALE_TRIES = 8;
 
 export async function flushOfflineQueue(
   onSaleSynced?: (
     localId: string,
     serverSale: Sale,
     stockUpdates?: { id: string; stock: number }[]
+  ) => void,
+  onSaleRejected?: (
+    localId: string,
+    error: string,
+    items: { product_id: string; qty: number }[]
   ) => void
-): Promise<{ sales: number; products: number }> {
-  const result = { sales: 0, products: 0 };
+): Promise<{ sales: number; products: number; rejected: number }> {
+  const result = { sales: 0, products: 0, rejected: 0 };
   if (!isSupabaseConfigured || !isOnline() || flushing) return result;
   flushing = true;
   try {
@@ -258,10 +292,19 @@ export async function flushOfflineQueue(
             await new Promise((r) => setTimeout(r, 20));
             continue;
           }
-          // Keep rejected/pending sales for reconciliation; never silently drop a
-          // locally completed sale after a fixed retry count. Idempotency makes
-          // retrying the same clientSaleId safe.
-          job.tries += 1;
+          const errMsg = res.ok === false ? res.error : 'Sale sync failed';
+          job.tries = (job.tries || 0) + 1;
+          // Permanent rejection or too many tries → drop job and let UI restore stock.
+          if (isPermanentSaleRejection(errMsg) || job.tries >= MAX_SALE_TRIES) {
+            onSaleRejected?.(
+              job.payload.localSale.id,
+              errMsg || 'Sale could not be synced',
+              job.payload.items || []
+            );
+            result.rejected += 1;
+            continue;
+          }
+          // Transient failure: keep for retry. Idempotency makes same clientSaleId safe.
           remain.push(job);
         } else if (job.type === 'stock_receive') {
           const res = await serverReceiveStock(job.payload);
@@ -278,18 +321,43 @@ export async function flushOfflineQueue(
           remain.push(job);
         } else if (job.type === 'product_patch') {
           const res = await pushProductPatch(job.productId, job.payload);
-          if (res.ok) continue;
+          if (res.ok) {
+            // Replace local data: URL with durable Storage URL so refresh/other devices keep the photo.
+            if (res.imageUrl && job.payload?.image_url?.startsWith?.('data:image/')) {
+              try {
+                const { useStore } = await import('../store/useStore');
+                useStore.setState((s) => ({
+                  products: s.products.map((p) =>
+                    p.id === job.productId ? { ...p, image_url: res.imageUrl } : p
+                  ),
+                }));
+              } catch { /* ignore */ }
+            }
+            continue;
+          }
           job.tries += 1; remain.push(job);
         } else if (job.type === 'product') {
           // Existing products must never receive a stale full-row stock snapshot.
           // New products still use a full insert/upsert; existing rows get metadata only.
+          // Images are uploaded to Storage (not stripped) so photos sync across devices.
           const { data: existingProduct, error: lookupError } = await supabase.from('products').select('id').eq('id', job.payload.id).maybeSingle();
           if (lookupError) { job.tries += 1; remain.push(job); continue; }
-          const { stock: _ignoredStock, image_url: _ignoredImage, ...metadata } = job.payload;
+          const { stock: _ignoredStock, ...metadata } = job.payload;
           const res = existingProduct
             ? await pushProductPatch(job.payload.id, metadata)
             : await pushProduct(job.payload);
           if (res.ok) {
+            const publicUrl = (res as { imageUrl?: string }).imageUrl;
+            if (publicUrl && job.payload?.image_url?.startsWith?.('data:image/')) {
+              try {
+                const { useStore } = await import('../store/useStore');
+                useStore.setState((s) => ({
+                  products: s.products.map((p) =>
+                    p.id === job.payload.id ? { ...p, image_url: publicUrl } : p
+                  ),
+                }));
+              } catch { /* ignore */ }
+            }
             result.products += 1;
             await new Promise((r) => setTimeout(r, 20));
             continue;

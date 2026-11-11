@@ -38,12 +38,12 @@ export default function Settings() {
     if (!currentUser || currentUser.role !== 'admin') return;
     if (!/^\d{6}$/.test(clearPin)) { alert('Enter the six-digit admin PIN.'); return; }
     if (isSupabaseConfigured && !isOnline()) { alert('Connect to the internet before clearing cloud data.'); return; }
-    if (!confirm('CLEAR PRODUCTS & REPORT HISTORY?\n\nThis permanently removes all products, sales and sale items, credits/payments, expenses, stock receiving history, held sales and activity logs from every connected device. Staff accounts and pub settings will remain. This cannot be undone.')) return;
+    if (!confirm('CLEAR PRODUCTS & REPORT HISTORY?')) return;
     if (isSupabaseConfigured) {
       const result = await clearProductsAndReports(clearPin, currentUser.id);
       if (!result.ok) {
         alert(
-          `Cloud cleanup failed: ${result.error || 'Unknown error'}\n\nNo local data was cleared.\n\nRun PUB_POS_ALL_IN_ONE.sql (or CLEAR_PRODUCTS_AND_REPORTS.sql) in Supabase, then retry.`
+          `Cloud cleanup failed: ${result.error || 'Unknown error'}`
         );
         return;
       }
@@ -106,8 +106,7 @@ export default function Settings() {
     }
 
     const msg = isSupabaseConfigured
-      ? 'FACTORY RESET\n\nThis permanently deletes all POS data on this device and in the cloud: products, sales, credits, expenses, stock records, logs, notifications, held sales and settings. All cashier accounts and other admin accounts will be deleted.\n\nOnly the admin account used to confirm this reset will remain so you can sign in and configure the fresh system.\n\nThis cannot be undone. Continue?'
-      : 'FACTORY RESET\n\nThis will permanently delete ALL POS data on this device, including products, sales, users, settings and offline data.\n\nThis cannot be undone. Continue?';
+      ? 'FACTORY RESET?' : 'FACTORY RESET?';
 
     if (!confirm(msg)) return;
     if (isSupabaseConfigured && !confirm('Final confirmation: wipe CLOUD data as well?')) return;
@@ -121,7 +120,7 @@ export default function Settings() {
         alert(
           'Cloud wipe failed: ' +
             (cloud.error || 'unknown') +
-            '\n\nNo local data was cleared, and the cloud transaction was rolled back.\n\nRun the updated supabase/factory_reset_cloud.sql in Supabase SQL Editor, wait for it to finish successfully, then retry.'
+            ''
         );
         return;
       }
@@ -200,7 +199,7 @@ export default function Settings() {
           </div>
         </div>
         <div>
-          <label className="text-sm text-gray-600">Business day starts at (hour 0–23)</label>
+          <label className="text-sm text-gray-600">Business day hour</label>
           <input
             type="number"
             min={0}
@@ -214,9 +213,6 @@ export default function Settings() {
             }
             className="w-full mt-1 border rounded-lg px-3 py-2.5 bg-gray-50"
           />
-          <p className="text-xs text-gray-400 mt-1">
-            Sales before this local hour count toward the previous business day.
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -308,12 +304,7 @@ export default function Settings() {
 
       <div className="bg-white rounded-xl shadow p-5 space-y-3">
         <h2 className="font-bold">Backup</h2>
-        <p className="text-xs text-gray-500">
-          {shouldRemindBackup() ? 'Backup recommended' : `Last backup ${daysSinceLastBackup()?.toFixed(1) || '—'} days ago`}
-          {' · '}v{appVersion}
-          {isSupabaseConfigured ? ' · Server connected' : ' · Local only'}
-          {allowDemoMode ? ' · Demo on' : ''}
-        </p>
+        
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -376,17 +367,11 @@ export default function Settings() {
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
         <h2 className="font-bold text-amber-800 mb-2">Clear Products & Reports</h2>
-        <p className="text-sm text-amber-900/80 mb-3">Delete the product catalogue and historical sales/report records across all tills, while keeping staff accounts and pub settings.</p>
         <button onClick={() => setShowClearData(true)} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm">Clear Products & Reports</button>
       </div>
 
       <div className="bg-red-50 border border-red-200 rounded-xl p-5">
         <h2 className="font-bold text-red-700 mb-2">Factory Reset</h2>
-        <p className="text-sm text-red-700/80 mb-3">
-          Permanently deletes products, sales, credits, expenses, stock and logs
-          {isSupabaseConfigured ? ' on this device and in the cloud' : ' on this device'}.
-          The admin account used to confirm the reset is retained so you can sign in again. All products, sales and dependent business records are deleted.
-        </p>
         <button
           onClick={() => setShowReset(true)}
           className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm"
@@ -412,7 +397,7 @@ export default function Settings() {
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
             <h2 className="font-bold text-amber-700 mb-2">Confirm Clear Products & Reports</h2>
-            <p className="text-sm text-gray-600 mb-3">Enter your admin PIN. Staff users and settings will remain.</p>
+            
             <div className="bg-gray-900 rounded-xl overflow-hidden">
               <NumericPad value={clearPin} onChange={setClearPin} onConfirm={clearProductsAndSalesHistory} maxLength={6} allowDecimal={false} large />
             </div>

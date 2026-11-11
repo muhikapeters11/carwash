@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { serverCompleteSale, cartToServerItems } from '../lib/api';
 import { isOnline, enqueueSale, enqueueProduct, enqueueProductPatch, enqueueCreditPayment, enqueueCloudUpsert, enqueueCloudDelete, enqueueProductDelete, enqueueStockReceive, enqueueStockAudit, flushOfflineQueue, removeProductFromQueue } from '../lib/offline';
+import { pushProductPatch, resolveProductImageUrl } from '../lib/sync';
 import { markProductDeleted, markHeldDeleted } from '../lib/tombstones';
 import type {
   Product, CartItem, Sale, HeldSale, Credit, Expense,
@@ -32,6 +33,60 @@ function guardProductEdit(p: { id: string; is_active?: boolean; stock?: number; 
       name: p.name,
     };
     sessionStorage.setItem('pub-pos-product-guards', JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
+
+/** Stable receipt number from sale UUID — must match server FINAL RPC formula. */
+export function receiptNoFromSaleId(saleId: string): string {
+  return 'R' + saleId.replace(/-/g, '').slice(0, 12).toUpperCase();
+}
+
+const INFLIGHT_SALE_KEY = 'pub-pos-inflight-sale';
+
+function cartFingerprint(items: { product: { id: string }; quantity: number }[]): string {
+  return items
+    .map((i) => `${i.product.id}:${i.quantity}`)
+    .sort()
+    .join('|');
+}
+
+/** Reuse the same client sale UUID across network retries of the same cart. */
+function getOrCreateClientSaleId(cart: { product: { id: string }; quantity: number }[]): string {
+  const fp = cartFingerprint(cart);
+  try {
+    const raw = sessionStorage.getItem(INFLIGHT_SALE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { clientSaleId: string; fingerprint: string; at: number };
+      // Reuse for up to 15 minutes while the cart content is unchanged.
+      if (
+        parsed?.clientSaleId &&
+        parsed.fingerprint === fp &&
+        Date.now() - (parsed.at || 0) < 15 * 60 * 1000
+      ) {
+        return parsed.clientSaleId;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  const clientSaleId = crypto.randomUUID();
+  try {
+    sessionStorage.setItem(
+      INFLIGHT_SALE_KEY,
+      JSON.stringify({ clientSaleId, fingerprint: fp, at: Date.now() })
+    );
+  } catch {
+    /* ignore */
+  }
+  return clientSaleId;
+}
+
+function clearInflightSaleId(): void {
+  try {
+    sessionStorage.removeItem(INFLIGHT_SALE_KEY);
   } catch {
     /* ignore */
   }
@@ -167,6 +222,22 @@ export const useStore = create<AppState>()(
         guardProductEdit(product);
         if (isSupabaseConfigured) {
           enqueueProduct(product);
+          // Eagerly resolve data: images to Storage URLs when online so the
+          // photo is durable before the next refresh on this or another device.
+          if (isOnline() && product.image_url?.startsWith('data:image/')) {
+            void (async () => {
+              const img = await resolveProductImageUrl(product.id, product.image_url);
+              if (img.ok && img.url) {
+                set((s) => ({
+                  products: s.products.map((row) =>
+                    row.id === product.id ? { ...row, image_url: img.url } : row
+                  ),
+                }));
+                // Persist public URL on the product row (stock left untouched).
+                await pushProductPatch(product.id, { image_url: img.url });
+              }
+            })();
+          }
           notifyLocalWrite();
         }
         return { ok: true };
@@ -198,7 +269,22 @@ export const useStore = create<AppState>()(
                 reason: 'Product stock edited', createdAt: new Date().toISOString(),
               });
             }
+            // Always queue the patch (including image). Online path also tries an
+            // immediate Storage upload so the public URL is written ASAP and
+            // survives refresh / appears on other devices.
             enqueueProductPatch(id, metadata);
+            if (isOnline() && metadata.image_url && String(metadata.image_url).startsWith('data:image/')) {
+              void (async () => {
+                const res = await pushProductPatch(id, { image_url: metadata.image_url });
+                if (res.ok && res.imageUrl) {
+                  set((s) => ({
+                    products: s.products.map((p) =>
+                      p.id === id ? { ...p, image_url: res.imageUrl } : p
+                    ),
+                  }));
+                }
+              })();
+            }
             notifyLocalWrite();
           }
         }
@@ -426,9 +512,10 @@ export const useStore = create<AppState>()(
         discount = Math.round(discount * 100) / 100;
         const total = Math.max(0, Math.round((subtotal - discount) * 100) / 100);
         const cost_total = items.reduce((s, i) => s + i.cost * i.qty, 0);
-        const receiptNo = `R${Date.now().toString().slice(-8)}`;
+        const saleId = crypto.randomUUID();
+        const receiptNo = receiptNoFromSaleId(saleId);
         const sale: Sale = {
-          id: crypto.randomUUID(),
+          id: saleId,
           items: discount > 0
             ? [...items, { product_id: '_discount', name: `Discount`, qty: 1, price: -discount, cost: 0 }]
             : items,
@@ -496,7 +583,9 @@ export const useStore = create<AppState>()(
         // When online, Supabase is the authority. Never deduct stock or show a
         // completed sale locally before the database confirms the transaction.
         if (isOnline()) {
-          const clientSaleId = crypto.randomUUID();
+          // Same cart content reuses the same clientSaleId so a lost response
+          // cannot create a second sale / second stock deduction on retry.
+          const clientSaleId = getOrCreateClientSaleId(cartSnapshot);
           const result = await serverCompleteSale({
             method: opts.method,
             creditorName: opts.creditorName,
@@ -507,9 +596,16 @@ export const useStore = create<AppState>()(
             items: cartToServerItems(cartSnapshot),
           });
           if (result.ok === false || !result.sale) {
-            return { ok: false, error: result.ok === false ? result.error : 'Supabase did not confirm the sale.' };
+            const err = result.ok === false ? result.error : 'Supabase did not confirm the sale.';
+            // Permanent business errors: clear inflight id so the next attempt is a new sale.
+            // Network / transient errors keep the same id for safe retry.
+            if (err && /in stock|unavailable|Invalid product|Cart is empty|Creditor name|Invalid payment|Discount must|Missing sale id/i.test(err)) {
+              clearInflightSaleId();
+            }
+            return { ok: false, error: err };
           }
 
+          clearInflightSaleId();
           const stockMap = new Map((result.stockUpdates || []).map((u) => [u.id, u.stock]));
           set((state) => ({
             products: state.products.map((product) =>

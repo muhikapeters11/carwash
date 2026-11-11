@@ -29,7 +29,7 @@ Do **not** commit `.env` (it is gitignored). Secrets go in Netlify only.
 
 | Name | Value |
 |------|--------|
-| `VITE_SUPABASE_URL` | `https://wrtmswnfgutlmkjzdzaj.supabase.co` |
+| `VITE_SUPABASE_URL` | `https://tvjdblbxmlteszcigckj.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | your anon public key from Supabase |
 | `VITE_ALLOW_DEMO` | `false` |
 

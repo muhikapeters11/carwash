@@ -27,11 +27,38 @@ export default function ReceiveStock() {
   const [batchItems, setBatchItems] = useState<{ product: Product; qty: string; totalCost: string }[]>([]);
   const [batchSelected, setBatchSelected] = useState<Product | null>(null);
 
+  const CATEGORY_ORDER: Category[] = ['beer', 'spirits', 'soft_drinks'];
+  const CATEGORY_LABEL: Record<Category, string> = {
+    beer: 'Beer',
+    spirits: 'Spirits',
+    soft_drinks: 'Soft Drinks',
+  };
+
   const filtered = useMemo(() => {
     let list = products.filter((p) => p.is_active !== false);
     if (category !== 'all') list = list.filter((p) => p.category === category);
-    return list.sort((a, b) => a.sku.localeCompare(b.sku));
+    return list.slice().sort((a, b) => {
+      const ca = CATEGORY_ORDER.indexOf(a.category);
+      const cb = CATEGORY_ORDER.indexOf(b.category);
+      if (ca !== cb) return ca - cb;
+      // Ascending SKU within each category
+      return String(a.sku || '').localeCompare(String(b.sku || ''), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    });
   }, [products, category]);
+
+  const productSections = useMemo(() => {
+    if (category !== 'all') {
+      return [{ id: category as Category, label: CATEGORY_LABEL[category as Category], items: filtered }];
+    }
+    return CATEGORY_ORDER.map((id) => ({
+      id,
+      label: CATEGORY_LABEL[id],
+      items: filtered.filter((p) => p.category === id),
+    })).filter((s) => s.items.length > 0);
+  }, [filtered, category]);
 
   const recentSuppliers = useMemo(() => {
     const names: string[] = [];
@@ -205,33 +232,49 @@ export default function ReceiveStock() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 overflow-y-auto flex-1">
-        {filtered.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => {
-              if (batchMode) {
-                setBatchSelected(p);
-                setQty('');
-                setTotalCost('');
-              } else {
-                setSelected(p);
-                setQty('');
-                setTotalCost('');
-              }
-            }}
-            className="bg-white rounded-xl border shadow-sm p-2 text-left hover:shadow-md"
-          >
-            <div className="aspect-square bg-gray-100 rounded-lg mb-2 flex items-center justify-center text-3xl overflow-hidden">
-              <ProductImage src={p.image_url} name={p.name} category={p.category} className="w-full h-full object-contain p-1" />
+      <div className="overflow-y-auto flex-1 space-y-5">
+        {productSections.map((section) => (
+          <div key={section.id}>
+            <div className="sticky top-0 z-[5] bg-gray-100/95 backdrop-blur-sm px-1 py-1.5 mb-2 flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-gray-600">{section.label}</span>
+              <span className="flex-1 h-px bg-gray-300" />
+              <span className="text-xs text-gray-400">{section.items.length}</span>
             </div>
-            <div className="text-sm font-semibold truncate">{p.name}</div>
-            <div className="text-xs text-gray-500">
-              Stock: {p.stock}{p.is_barrel ? ' cups' : ''}
-              {p.is_barrel && <span className="ml-1 text-amber-600">· Barrel</span>}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {section.items.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    if (batchMode) {
+                      setBatchSelected(p);
+                      setQty('');
+                      setTotalCost('');
+                    } else {
+                      setSelected(p);
+                      setQty('');
+                      setTotalCost('');
+                    }
+                  }}
+                  className="bg-white rounded-xl border shadow-sm overflow-hidden text-left hover:shadow-md flex flex-col h-[200px]"
+                >
+                  <div className="h-[120px] w-full shrink-0 bg-gray-100 overflow-hidden">
+                    <ProductImage src={p.image_url} name={p.name} category={p.category} fit="contain" />
+                  </div>
+                  <div className="p-2 flex-1 min-h-0">
+                    <div className="text-sm font-semibold truncate">{p.name}</div>
+                    <div className="text-xs text-gray-500">
+                      Stock: {p.stock}{p.is_barrel ? ' cups' : ''}
+                      {p.is_barrel && <span className="ml-1 text-amber-600">· Barrel</span>}
+                    </div>
+                  </div>
+                </button>
+              ))}
             </div>
-          </button>
+          </div>
         ))}
+        {filtered.length === 0 && (
+          <p className="p-8 text-center text-gray-400">—</p>
+        )}
       </div>
 
       {/* Single or batch item popup */}
@@ -247,11 +290,11 @@ export default function ReceiveStock() {
 
               <div className="space-y-3">
                 <button onClick={() => setActiveKb('qty')} className="w-full text-left border rounded-lg px-3 py-2.5 bg-gray-50">
-                  <span className="text-xs text-gray-500">{prod.is_barrel ? 'Barrels *' : 'Quantity *'}</span>
+                  <span className="text-xs text-gray-500">{prod.is_barrel ? 'Barrels' : 'Quantity'}</span>
                   <div className="font-semibold">{qty || ''}</div>
                 </button>
                 <button onClick={() => setActiveKb('total')} className="w-full text-left border rounded-lg px-3 py-2.5 bg-gray-50">
-                  <span className="text-xs text-gray-500">Total Cost *</span>
+                  <span className="text-xs text-gray-500">Total Cost</span>
                   <div className="font-semibold">{totalCost || ''}</div>
                 </button>
                 {prod.is_barrel && qty && (

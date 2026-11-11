@@ -44,7 +44,7 @@ export default function QwertyKeyboard({
         <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl p-4 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {title || 'Enter text'}
+              {title || ''}
             </h2>
             {onCancel && (
               <button

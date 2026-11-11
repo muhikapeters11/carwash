@@ -215,6 +215,9 @@ end;
 $$;
 
 -- ---------- Atomic sale + stock lock ----------
+-- WARNING: Prefer supabase/FINAL_AUTHORITATIVE_SALES_STOCK.sql after any schema bootstrap.
+-- The function below is a bootstrap default and may lag the authoritative version.
+
 create or replace function public.complete_sale(
   p_cashier_id uuid,
   p_cashier_name text,

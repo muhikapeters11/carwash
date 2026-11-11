@@ -60,3 +60,22 @@ export function businessDayLabel(ref: Date = new Date()): string {
     });
   return `${fmt(start)} → ${fmt(end)}`;
 }
+
+/** Rolling 7 business-day windows ending at the current business-day end. */
+export function isInCurrentBusinessWeek(iso: string, ref: Date = new Date()): boolean {
+  const end = getBusinessDayEnd(ref);
+  const start = new Date(getBusinessDayStart(ref));
+  start.setDate(start.getDate() - 6);
+  const t = new Date(iso).getTime();
+  return t >= start.getTime() && t < end.getTime();
+}
+
+/** From the 1st of the month at cut-off through the current business-day end. */
+export function isInCurrentBusinessMonth(iso: string, ref: Date = new Date()): boolean {
+  const end = getBusinessDayEnd(ref);
+  const start = new Date(getBusinessDayStart(ref));
+  start.setDate(1);
+  start.setHours(cutOffHour, 0, 0, 0);
+  const t = new Date(iso).getTime();
+  return t >= start.getTime() && t < end.getTime();
+}

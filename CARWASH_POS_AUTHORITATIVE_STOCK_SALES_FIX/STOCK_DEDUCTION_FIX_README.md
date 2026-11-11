@@ -6,22 +6,99 @@ Before deploying this application, open the Supabase project used by every Carwa
 
 `supabase/FINAL_AUTHORITATIVE_SALES_STOCK.sql`
 
-The migration replaces the seven-argument `public.complete_sale` RPC used by `src/lib/api.ts`. The RPC locks the sale ID and product rows, validates available stock, inserts the sale and sale items, deducts `products.stock`, and returns the committed stock values in one PostgreSQL transaction. A repeated request with the same sale ID returns the existing sale and current stock without deducting twice.
+Do **not** run any file under `supabase/DEPRECATED_DO_NOT_RUN/` or the older standalone fix scripts. Those overwrite the authoritative RPC.
 
-The app's online checkout waits for the RPC response before clearing the cart or changing displayed stock. Offline sales remain in the local queue; both full and hot sync now flush that queue through the same RPC and apply the returned stock values. Pending offline sale quantities are preserved during a cloud pull until they are reconciled.
+The migration:
+
+1. Replaces `public.complete_sale` with an atomic sale + stock transaction (row locks, advisory lock on sale id, idempotent retries).
+2. Uses a **deterministic receipt number** derived from the sale UUID so offline-printed receipts match the cloud receipt.
+3. Adds `CHECK (stock >= 0)` on `public.products` (`products_stock_non_negative`).
+4. Ensures `public.products` is in the Realtime publication.
+
+## App-side hardening (this package)
+
+| # | Fix | Behaviour |
+|---|-----|-----------|
+| 1 | Reuse client sale ID on retry | Same cart content reuses one UUID for up to 15 minutes so a lost HTTP response cannot double-deduct. |
+| 2 | Rejected offline sale reconciliation | Permanent server rejections (or 8 failed tries) restore local stock, drop the ghost sale/credit, and raise a notification. |
+| 3 | Quarantined old SQL | Older `complete_sale` scripts moved/stubbed under `DEPRECATED_DO_NOT_RUN`. |
+| 4 | Non-negative stock constraint | DB rejects negative stock even if application logic regresses. |
+| 5 | Deterministic receipts | Offline and server receipts use `R` + first 12 hex chars of the sale UUID. |
+| 6 | Acceptance test checklist | Steps and SQL probes below — must be run on **your** project. |
 
 ## Required manual acceptance test
 
-Use a test product, not a live inventory item:
+Use a **test product**, not live inventory.
 
-1. Set a product's stock to 10 in the POS and confirm the value is 10 in Supabase `public.products`.
-2. Sell quantity 2 while online. Wait for the successful receipt.
-3. Confirm Supabase `public.products.stock` is 8, one row exists in `public.sales`, and its `public.sale_items` row has quantity 2.
-4. Refresh the POS. The product must still show 8.
-5. Open the POS on a second device and sync. It must also show 8.
-6. Retry the same RPC request using the same `p_client_sale_id` only in a controlled test. The stock must remain 8 and no second sale row may be created.
-7. For offline testing, disconnect one test device, sell 1, and verify it is labelled/persisted locally as pending. Reconnect and wait for sync. Once accepted by Supabase, cloud stock must reduce to 7 and the pending sale must become the cloud sale.
+### A. Online atomic deduction
+
+1. Set the product stock to **10** in the POS. Confirm `public.products.stock = 10` in Supabase.
+2. Sell quantity **2** while online. Wait for the successful receipt.
+3. Confirm cloud stock is **8**, one `sales` row exists, and `sale_items.quantity = 2`.
+4. Refresh the POS — product must still show **8**.
+5. Open a second device and sync — it must also show **8**.
+
+### B. Idempotent retry (same client sale id)
+
+6. In a controlled test only, call `complete_sale` again with the **same** `p_client_sale_id`. Stock must remain **8**; no second sale row.
+
+Optional SQL probe (replace the UUID):
+
+```sql
+select id, stock from public.products where id = '<product-uuid>';
+select id, receipt_no, total from public.sales where id = '<sale-uuid>';
+select product_id, quantity from public.sale_items where sale_id = '<sale-uuid>';
+```
+
+### C. Offline → sync
+
+7. Disconnect one test device, sell quantity **1**, confirm it is stored locally as pending.
+8. Reconnect and wait for sync. Cloud stock must become **7**. The pending sale must become the cloud sale (same id). Receipt number must match the offline print (`R` + 12 hex chars of the sale id).
+
+### D. Offline rejection + stock restore
+
+9. On device A (online), sell the remaining stock of the test product to **0**.
+10. On device B (offline), sell quantity **1** of the same product (local stock will go negative-safe to 0 or stay provisional).
+11. Bring device B online. Sync must **reject** the offline sale, restore device B stock toward the cloud value, remove the ghost local sale, and show a notification (“Offline sale not synced”).
+
+### E. Constraint
+
+12. In SQL Editor (should fail):
+
+```sql
+update public.products set stock = -1 where id = '<test-product-uuid>';
+```
+
+Expect a check-constraint violation on `products_stock_non_negative`.
 
 ## Verification status for this package
 
-The ZIP archive structure and source-level wiring were checked. A production build and live Supabase checkout could not be run in this environment because dependency installation timed out and no live database credentials/session were available. Do not treat the manual acceptance test as passed until it is run against your Supabase project.
+Source-level wiring for fixes 1–5 is implemented in this ZIP. A production build and live Supabase checkout **cannot** be run from this environment (no project credentials). Treat the acceptance test as **passed only after you execute sections A–E** against your Supabase project.
+
+## Deploy order
+
+1. Run `supabase/FINAL_AUTHORITATIVE_SALES_STOCK.sql` in Supabase SQL Editor.
+2. Deploy this app build to every till (web / desktop).
+3. Run acceptance tests A–E on a test product.
+4. Only then use live inventory.
+
+## Product images (persist + multi-device)
+
+Product photos are stored in the Supabase Storage bucket `product-images` and the public URL is saved on `public.products.image_url`.
+
+Behaviour in this build:
+
+1. Camera/file picks are compressed to a JPEG data URL in the form.
+2. On save (add or edit), the app uploads the image to Storage and writes the **public URL** to the product row.
+3. Local state replaces the temporary data URL with that public URL so refresh does not depend on large base64 in `localStorage`.
+4. Other devices receive the same URL via product pull / Realtime and show the same photo.
+5. If upload is offline, the data URL stays local and is uploaded on the next queue flush / bootstrap backfill.
+
+**Required:** run `supabase/FINAL_AUTHORITATIVE_SALES_STOCK.sql` (creates the bucket + policies). In the Supabase Dashboard, confirm Storage → `product-images` exists and is public.
+
+### Quick image test
+
+1. Online: edit a product, attach a photo, save.
+2. Confirm `products.image_url` in Supabase starts with `http` (Storage public URL), not `data:image`.
+3. Refresh the POS — photo still shows.
+4. Open a second device / browser profile, sync — same photo appears.

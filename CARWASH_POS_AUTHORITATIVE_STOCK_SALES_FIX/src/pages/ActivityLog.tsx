@@ -108,7 +108,7 @@ export default function ActivityLog() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search…"
+          placeholder=""
           className="px-3 py-2 rounded-xl border text-sm min-w-[140px]"
         />
         {filter === 'custom' && (

@@ -80,7 +80,7 @@ export default function InventoryAudit() {
             </div>
           </div>
           <div className="bg-white rounded-xl p-4 shadow">
-            <div className="text-sm text-gray-500">At sell price</div>
+            
             <div className="text-xl font-bold">
               {settings.currency} {inventoryValueAfter.toFixed(0)}
             </div>
@@ -153,11 +153,11 @@ export default function InventoryAudit() {
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
             <h2 className="font-bold text-lg mb-1">{selected.name}</h2>
-            <p className="text-sm text-gray-500 mb-2">System stock: {selected.stock}</p>
+            <p className="text-sm text-gray-500 mb-2">{selected.stock}</p>
             <input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Reason (optional)"
+              placeholder=""
               className="w-full border rounded-lg px-3 py-2 text-sm mb-3"
             />
             <div className="bg-gray-900 rounded-xl overflow-hidden">

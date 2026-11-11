@@ -1,10 +1,10 @@
 # Supabase setup (your project)
 
-**Project URL:** `https://wrtmswnfgutlmkjzdzaj.supabase.co`
+**Project URL:** `https://tvjdblbxmlteszcigckj.supabase.co`
 
 ## 1. Upload schema
 
-1. Open [Supabase Dashboard](https://supabase.com/dashboard/project/wrtmswnfgutlmkjzdzaj)
+1. Open [Supabase Dashboard](https://supabase.com/dashboard/project/tvjdblbxmlteszcigckj)
 2. Go to **SQL Editor** → **New query**
 3. Open the file `schema.sql` from this folder
 4. Paste the **entire** contents into the editor
@@ -27,7 +27,7 @@ Change these after first login (Users tab or SQL `set_profile_pin`).
 Already set in `.env` for local builds:
 
 ```
-VITE_SUPABASE_URL=https://wrtmswnfgutlmkjzdzaj.supabase.co
+VITE_SUPABASE_URL=https://tvjdblbxmlteszcigckj.supabase.co
 VITE_SUPABASE_ANON_KEY=<your anon key>
 VITE_ALLOW_DEMO=false
 ```

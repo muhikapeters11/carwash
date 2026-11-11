@@ -2,9 +2,9 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // Same project as Netlify web/mobile — desktop must share this cloud or data diverges.
-const DEFAULT_SUPABASE_URL = 'https://wrtmswnfgutlmkjzdzaj.supabase.co'
+const DEFAULT_SUPABASE_URL = 'https://tvjdblbxmlteszcigckj.supabase.co'
 const DEFAULT_SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndydG1zd25mZ3V0bG1ranpkemFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxODk0MjQsImV4cCI6MjEwOTc2NTQyNH0.y9jMZnWY5A5py9Vrvkkow6OFAwIQkpgbOFPPWFK77DQ'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2amRibGJ4bWx0ZXN6Y2lnY2tqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0MjQ5MzgsImV4cCI6MjExMDAwMDkzOH0.A5xHZivqWlyegdBcrwF_vsjFFkOVik9fODIdmnWXUcI'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')

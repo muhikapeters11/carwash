@@ -22,6 +22,11 @@ function createWindow() {
     icon,
     show: false,
     backgroundColor: '#1a1a2e',
+    // Windowed fullscreen: normal frame (can minimize/restore), maximized to the work area.
+    // Not exclusive/kiosk fullscreen — title bar and OS controls remain available.
+    fullscreen: false,
+    simpleFullscreen: false,
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -29,7 +34,11 @@ function createWindow() {
     },
   });
 
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    // Maximize fills the screen while staying a normal window (windowed fullscreen).
+    win.maximize();
+    win.show();
+  });
 
   if (isDev) {
     const url = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';

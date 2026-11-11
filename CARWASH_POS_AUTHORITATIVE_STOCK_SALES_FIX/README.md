@@ -60,9 +60,12 @@ Data stays in `localStorage` until you connect Supabase.
 
 See **[DEPLOY.md](DEPLOY.md)** for deployment. For the updated multi-device outbox and Realtime configuration, also follow **[MULTI_DEVICE_SYNC.md](MULTI_DEVICE_SYNC.md)** — the SQL migration there must be run in Supabase.
 
-1. Run `supabase/schema.sql`, then `supabase/FINAL_AUTHORITATIVE_SALES_STOCK.sql` in your Supabase SQL Editor  
-2. Add 3 environment variables on Netlify  
+1. Run `supabase/schema.sql`, then **always** `supabase/FINAL_AUTHORITATIVE_SALES_STOCK.sql` in your Supabase SQL Editor
+   (never run files under `supabase/DEPRECATED_DO_NOT_RUN/`)
+2. Add 3 environment variables on Netlify
 3. Push this repo to GitHub → Netlify auto-deploys
+
+See **[STOCK_DEDUCTION_FIX_README.md](STOCK_DEDUCTION_FIX_README.md)** for the stock-persistence hardening (idempotent client sale ids, offline rejection restore, non-negative stock constraint, deterministic receipts) and the full acceptance test.
 
 **Login PIN after deploy: `233456`**
 
