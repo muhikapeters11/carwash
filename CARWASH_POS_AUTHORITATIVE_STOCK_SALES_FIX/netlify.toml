@@ -1,0 +1,33 @@
+# Netlify build — works when site is connected to GitHub
+[build]
+  command = "npm install --include=dev --no-audit --no-fund && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--include=dev"
+  # Skip Electron postinstall (not needed for web deploy)
+  ELECTRON_SKIP_BINARY_DOWNLOAD = "1"
+  npm_config_ignore_scripts = "true"
+  # Vite env baked into the browser bundle at build time
+  VITE_ALLOW_DEMO = "false"
+  VITE_SUPABASE_URL = "https://wrtmswnfgutlmkjzdzaj.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndydG1zd25mZ3V0bG1ranpkemFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxODk0MjQsImV4cCI6MjEwOTc2NTQyNH0.y9jMZnWY5A5py9Vrvkkow6OFAwIQkpgbOFPPWFK77DQ"
+
+# SPA routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Cache static assets; always revalidate HTML
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
