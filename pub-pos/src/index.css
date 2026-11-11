@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  height: 100dvh;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Light defaults */
+body {
+  @apply bg-gray-100 text-gray-900;
+}
+
+/* Dark mode global fixes — readable text everywhere */
+.dark body,
+html.dark body {
+  @apply bg-gray-900 text-gray-100;
+}
+
+.dark .bg-white {
+  @apply !bg-gray-800;
+}
+
+.dark .bg-gray-50 {
+  @apply !bg-gray-800/80;
+}
+
+.dark .bg-gray-100 {
+  @apply !bg-gray-900;
+}
+
+.dark .text-gray-900,
+.dark .text-gray-800 {
+  @apply !text-gray-100;
+}
+
+.dark .text-gray-700 {
+  @apply !text-gray-200;
+}
+
+.dark .text-gray-600 {
+  @apply !text-gray-300;
+}
+
+.dark .text-gray-500 {
+  @apply !text-gray-400;
+}
+
+.dark .text-gray-400 {
+  @apply !text-gray-400;
+}
+
+.dark .border,
+.dark .border-gray-200,
+.dark .border-gray-100 {
+  @apply !border-gray-700;
+}
+
+.dark .bg-primary-50 {
+  @apply !bg-primary-900/40;
+}
+
+.dark .bg-primary-100 {
+  @apply !bg-primary-900/50;
+}
+
+.dark .text-primary-700 {
+  @apply !text-primary-300;
+}
+
+.dark .bg-amber-50 {
+  @apply !bg-amber-900/30;
+}
+
+.dark .bg-amber-100 {
+  @apply !bg-amber-900/40;
+}
+
+.dark .text-amber-800,
+.dark .text-amber-700 {
+  @apply !text-amber-200;
+}
+
+.dark .bg-red-50 {
+  @apply !bg-red-900/30;
+}
+
+.dark .bg-green-50 {
+  @apply !bg-green-900/30;
+}
+
+.dark .bg-violet-100 {
+  @apply !bg-violet-900/40;
+}
+
+.dark .text-violet-800 {
+  @apply !text-violet-200;
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  @apply !bg-gray-800 !text-gray-100 !border-gray-600;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  @apply !text-gray-500;
+}
+
+/* Custom scrollbar */
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 3px;
+}
+.dark .custom-scroll::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+@media (max-width: 640px) {
+  .product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
