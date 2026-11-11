@@ -1,5 +1,6 @@
 # Netlify build — works when site is connected to GitHub
 [build]
+  base = "pub-pos"
   command = "npm install --include=dev --no-audit --no-fund && npm run build"
   publish = "dist"
 
