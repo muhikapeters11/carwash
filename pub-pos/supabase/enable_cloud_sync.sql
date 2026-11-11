@@ -49,3 +49,25 @@ begin
   alter publication supabase_realtime add table public.profiles;
 exception when duplicate_object then null; when others then null;
 end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.held_sales;
+exception when duplicate_object then null; when others then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.activity_logs;
+exception when duplicate_object then null; when others then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.credit_payments;
+exception when duplicate_object then null; when others then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.notifications;
+exception when duplicate_object then null; when others then null;
+end $$;
+
+notify pgrst, 'reload schema';

@@ -10,6 +10,34 @@ import type {
   UserProfile, AppSettings, Notification, TabId, StockReceive, ActivityLogEntry
 } from '../types';
 
+/** Nudge open tabs / other devices to pull after a cloud write is queued. */
+function notifyLocalWrite() {
+  try {
+    window.dispatchEvent(new CustomEvent('pub-pos-local-write'));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Remember a product edit for ~30s so a mid-flight cloud pull cannot undo is_active / stock. */
+function guardProductEdit(p: { id: string; is_active?: boolean; stock?: number; price?: number; cost?: number; name?: string }) {
+  try {
+    const raw = sessionStorage.getItem('pub-pos-product-guards');
+    const map = raw ? JSON.parse(raw) : {};
+    map[p.id] = {
+      at: Date.now(),
+      is_active: p.is_active !== false,
+      stock: p.stock,
+      price: p.price,
+      cost: p.cost,
+      name: p.name,
+    };
+    sessionStorage.setItem('pub-pos-product-guards', JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
 interface AppState {
   currentUser: UserProfile | null;
   setCurrentUser: (user: UserProfile | null) => void;
@@ -133,8 +161,10 @@ export const useStore = create<AppState>()(
         if (exists) return { ok: false, error: 'SKU already exists' };
         const product = { ...p, is_active: p.is_active !== false };
         set((s) => ({ products: [...s.products, product] }));
+        guardProductEdit(product);
         if (isSupabaseConfigured) {
           enqueueProduct(product);
+          notifyLocalWrite();
         }
         return { ok: true };
       },
@@ -151,9 +181,14 @@ export const useStore = create<AppState>()(
             c.product.id === id ? { ...c, product: { ...c.product, ...data } } : c
           ),
         }));
-        if (isSupabaseConfigured) {
-          const updated = get().products.find((p) => p.id === id);
-          if (updated) enqueueProduct(updated);
+        const updated = get().products.find((p) => p.id === id);
+        if (updated) {
+          // Guard Active/Inactive (and stock) so a hot pull cannot flip the toggle back.
+          guardProductEdit(updated);
+          if (isSupabaseConfigured) {
+            enqueueProduct(updated);
+            notifyLocalWrite();
+          }
         }
         return { ok: true };
       },
@@ -175,6 +210,7 @@ export const useStore = create<AppState>()(
           void deleteProductRemote(id).then((res) => {
             if (!res.ok) console.warn('product delete remote failed', res.error);
           });
+          notifyLocalWrite();
         }
       },
 
@@ -284,6 +320,7 @@ export const useStore = create<AppState>()(
                 if (error) console.warn('held_sales upsert failed', error.message);
               });
             }).catch((e) => console.warn('held_sales push failed', e));
+            notifyLocalWrite();
           }
         } catch (e) {
           console.warn('holdSale failed', e);
@@ -492,6 +529,7 @@ export const useStore = create<AppState>()(
               }));
             });
           }
+          notifyLocalWrite();
         }
         return local;
       },
@@ -514,6 +552,7 @@ export const useStore = create<AppState>()(
           }).then((res) => {
             if (!res.ok) console.warn('server credit payment failed', res.error);
           });
+          notifyLocalWrite();
         }
 
         set((s) => ({
@@ -561,7 +600,10 @@ export const useStore = create<AppState>()(
       expenses: [],
       addExpense: (e) => {
         set((s) => ({ expenses: [e, ...s.expenses] }));
-        if (isSupabaseConfigured) void pushExpense(e);
+        if (isSupabaseConfigured) {
+          void pushExpense(e);
+          notifyLocalWrite();
+        }
       },
 
       stockReceives: [],
@@ -580,6 +622,7 @@ export const useStore = create<AppState>()(
             received_by: r.received_by,
             created_at: r.created_at,
           });
+          notifyLocalWrite();
         }
         // Stock quantity itself is queued via updateProduct -> enqueueProduct
       },
@@ -655,6 +698,7 @@ export const useStore = create<AppState>()(
         if (isSupabaseConfigured) {
           const next = { ...get().settings, ...s };
           void pushSettings(next);
+          notifyLocalWrite();
         }
       },
 

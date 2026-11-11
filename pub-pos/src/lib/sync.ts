@@ -227,7 +227,8 @@ export async function pullHotData(prevProducts: Product[] = []): Promise<Partial
   if (!isSupabaseConfigured) return {};
   const imgMap = new Map(prevProducts.map((p) => [p.id, p.image_url]));
 
-  const [prodRes, salesRes, credRes, profRes, setRes, heldRes] = await Promise.all([
+  // Hot pull = everything other devices need to stay in lockstep (web / desktop / phone).
+  const [prodRes, salesRes, credRes, profRes, setRes, heldRes, expRes, recvRes, actRes] = await Promise.all([
     supabase
       .from('products')
       .select('id,sku,name,category,price,cost,stock,low_stock_threshold,is_barrel,barrel_cups,is_active,updated_at,image_url')
@@ -245,9 +246,12 @@ export async function pullHotData(prevProducts: Product[] = []): Promise<Partial
     supabase.from('profiles').select('id,email,full_name,role,permissions,is_active').order('created_at', { ascending: true }),
     supabase.from('app_settings').select('id,pub_name,logo_url,login_bg_url,till_number,receipt_footer,currency,factory_reset_at').eq('id', 1).maybeSingle(),
     supabase.from('held_sales').select('*').order('created_at', { ascending: false }).limit(50),
+    supabase.from('expenses').select('id,description,amount,created_by,created_at').order('created_at', { ascending: false }).limit(100),
+    supabase.from('stock_receives').select('id,product_id,product_name,quantity,unit_cost,total_cost,receipt_no,supplier,received_by,created_at').order('created_at', { ascending: false }).limit(80),
+    supabase.from('activity_logs').select('id,user_id,user_name,action,details,created_at').order('created_at', { ascending: false }).limit(80),
   ]);
 
-  const queryErrors = [prodRes, salesRes, credRes, profRes, setRes, heldRes]
+  const queryErrors = [prodRes, salesRes, credRes, profRes, setRes, heldRes, expRes, recvRes, actRes]
     .filter((r: any) => r?.error)
     .map((r: any) => r.error.message || 'Cloud sync query failed');
   if (queryErrors.length) throw new Error(queryErrors.join(' | '));
@@ -323,6 +327,22 @@ export async function pullHotData(prevProducts: Product[] = []): Promise<Partial
       })),
     })),
     heldSales,
+    expenses: (expRes.data || []).map((e: any) => ({
+      id: String(e.id),
+      description: e.description,
+      amount: Number(e.amount),
+      created_by: e.created_by,
+      created_at: e.created_at,
+    })),
+    stockReceives: recvRes.data || [],
+    activityLogs: (actRes.data || []).map((a: any) => ({
+      id: String(a.id),
+      user_id: a.user_id,
+      user_name: a.user_name || '',
+      action: a.action || '',
+      details: a.details || undefined,
+      created_at: a.created_at,
+    })),
   };
 }
 

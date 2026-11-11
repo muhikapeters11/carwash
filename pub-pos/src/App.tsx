@@ -54,13 +54,11 @@ function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Await
     });
   }
 
-  // Cloud arrays are authoritative, including empty arrays after a reset.
-  // Never restore products/held sales the user explicitly deleted on this device.
+  // Cloud products are authoritative, including inactive rows.
+  // Keep inactive products in the store so Products admin can toggle them;
+  // Sell already filters is_active !== false. Only tombstoned (deleted) are dropped.
   if (data.products !== undefined) {
-    patch.products = filterTombstonedProducts(
-      // Soft-deleted rows must not reappear in the catalogue after a user delete.
-      (data.products || []).filter((p) => p.is_active !== false)
-    );
+    patch.products = filterTombstonedProducts(data.products || []);
   }
   if (data.profiles !== undefined) {
     patch.staffUsers = data.profiles;
@@ -136,37 +134,74 @@ function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Await
     }
   }
 
-  // When products are pulled, prefer fresher local stock if there are pending
-  // offline product/sale jobs that have not reached the cloud yet. This stops
-  // a mid-sync pull from wiping a just-completed sale or receive-stock change.
+  // Prefer local product fields that are still uploading (stock, is_active, price…).
+  // Without this, a hot pull right after "Inactive" restores the old Active flag.
   if (data.products !== undefined && !cloudResetDetected && patch.products) {
     try {
-      const raw = localStorage.getItem('carwash-offline-queue');
-      const q = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(q) && q.length > 0) {
-        const localById = new Map(st.products.map((p) => [p.id, p]));
-        patch.products = (patch.products as typeof data.products).map((cloudP) => {
-          if (isProductTombstoned(cloudP.id)) return cloudP;
-          const local = localById.get(cloudP.id);
-          if (!local) return cloudP;
-          if (Number(local.stock) !== Number(cloudP.stock)) {
-            return { ...cloudP, stock: local.stock };
+      const localById = new Map(st.products.map((p) => [p.id, p]));
+      const pendingIds = new Set<string>();
+      try {
+        const raw = localStorage.getItem('carwash-offline-queue');
+        const q = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(q)) {
+          for (const job of q) {
+            if (job?.type === 'product' && job.payload?.id) pendingIds.add(String(job.payload.id));
           }
-          return cloudP;
-        });
-        // Retain purely local products still waiting to upload — but never
-        // resurrect a product the user deleted (tombstone).
-        const cloudIds = new Set((data.products || []).map((p) => p.id));
-        const missingLocal = st.products.filter(
-          (p) => !cloudIds.has(p.id) && !isProductTombstoned(p.id)
-        );
-        if (missingLocal.length) {
-          patch.products = [...patch.products, ...missingLocal];
         }
-        patch.products = filterTombstonedProducts(patch.products);
+      } catch {
+        /* ignore */
       }
+      // Recent edits guard (set by updateProduct / addProduct) — survives until cloud catches up.
+      let recent: Record<string, { at: number; is_active?: boolean; stock?: number; price?: number; cost?: number; name?: string }> = {};
+      try {
+        recent = JSON.parse(sessionStorage.getItem('pub-pos-product-guards') || '{}');
+      } catch {
+        recent = {};
+      }
+      const now = Date.now();
+      const freshRecent: typeof recent = {};
+      for (const [id, g] of Object.entries(recent)) {
+        if (now - (g.at || 0) < 30_000) freshRecent[id] = g;
+      }
+      try {
+        sessionStorage.setItem('pub-pos-product-guards', JSON.stringify(freshRecent));
+      } catch {
+        /* ignore */
+      }
+
+      patch.products = (patch.products as typeof data.products).map((cloudP) => {
+        if (isProductTombstoned(cloudP.id)) return cloudP;
+        const local = localById.get(cloudP.id);
+        const guard = freshRecent[cloudP.id];
+        if (!local && !guard) return cloudP;
+        let next = { ...cloudP };
+        if (guard) {
+          if (typeof guard.is_active === 'boolean') next.is_active = guard.is_active;
+          if (typeof guard.stock === 'number') next.stock = guard.stock;
+          if (typeof guard.price === 'number') next.price = guard.price;
+          if (typeof guard.cost === 'number') next.cost = guard.cost;
+          if (typeof guard.name === 'string') next.name = guard.name;
+        }
+        if (local && (pendingIds.has(cloudP.id) || guard)) {
+          if (Number(local.stock) !== Number(next.stock)) next = { ...next, stock: local.stock };
+          if ((local.is_active !== false) !== (next.is_active !== false)) {
+            next = { ...next, is_active: local.is_active !== false };
+          }
+        }
+        return next;
+      });
+
+      // Retain purely local products still waiting to upload — never resurrect tombstones.
+      const cloudIds = new Set((data.products || []).map((p) => p.id));
+      const missingLocal = st.products.filter(
+        (p) => !cloudIds.has(p.id) && !isProductTombstoned(p.id)
+      );
+      if (missingLocal.length) {
+        patch.products = [...patch.products, ...missingLocal];
+      }
+      patch.products = filterTombstonedProducts(patch.products);
     } catch {
-      /* ignore queue parse errors */
+      /* ignore merge errors */
     }
   }
 
@@ -290,13 +325,20 @@ export default function App() {
       return () => window.removeEventListener('pub-pos-refresh', onManualRefresh);
     }
 
-    // Non-blocking initial sync
+    // Non-blocking initial sync — every device pulls the same cloud catalogue.
     const t = window.setTimeout(() => void syncFull(), 50);
 
+    // Safety net when Realtime is delayed: full pull every 90s.
     const id = setInterval(() => {
       if (!isOnline()) return;
       void syncFull();
-    }, 5 * 60 * 1000);
+    }, 90_000);
+
+    // Lightweight poll so web / desktop / phone stay close even if one event is missed.
+    const hotId = setInterval(() => {
+      if (!isOnline()) return;
+      void syncHot();
+    }, 20_000);
 
     const onFocus = () => {
       if (isOnline()) void syncHot();
@@ -309,7 +351,7 @@ export default function App() {
 
     const unsubNet = subscribeOnline(() => {
       if (isOnline()) {
-        // Pull cloud state first (including factory-reset marker), then sync pending writes.
+        // Pull cloud first (including factory-reset marker), then flush offline writes.
         void syncFull();
       }
     });
@@ -319,11 +361,19 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
+    // After a local write, nudge a hot pull so other open tabs on this machine refresh.
+    const onLocalWrite = () => {
+      if (isOnline()) window.setTimeout(() => void syncHot(), 800);
+    };
+    window.addEventListener('pub-pos-local-write', onLocalWrite);
+
     return () => {
       clearTimeout(t);
       clearInterval(id);
+      clearInterval(hotId);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('pub-pos-refresh', onManualRefresh);
+      window.removeEventListener('pub-pos-local-write', onLocalWrite);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       unsubRt();
       unsubNet();
