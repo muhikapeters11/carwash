@@ -90,9 +90,17 @@ export async function loginWithPin(
       }
 
       if (result.error) {
-        // A missing function / permission / SQL error is a deployment problem,
-        // not evidence that the PIN is wrong. Do not mask it with local auth.
-        const message = String(result.error.message || 'Could not contact login service');
+        const message = String(result.error.message || result.error || 'Could not contact login service');
+        // Browser TypeError: Failed to fetch — network/CORS/DNS, not a bad PIN.
+        // Fall through to cached/local login instead of hard-failing the till.
+        const isNetwork =
+          /failed to fetch|networkerror|network request failed|load failed|fetch failed|timeout|econnrefused|enotfound|dns/i.test(
+            message
+          ) || result.error?.name === 'TypeError';
+        if (isNetwork) {
+          throw new Error(message);
+        }
+        // Real server/RPC errors (missing function, SQL, permission) stay visible.
         return { ok: false, error: `Login service error: ${message}` };
       }
 
@@ -128,7 +136,20 @@ export async function loginWithPin(
         await rememberOfflineUser(cached, pin);
         return { ok: true, user: cached };
       }
-      return { ok: false, error: error?.message || 'Unable to reach the login server. Check your connection and try again.' };
+      const msg = String(error?.message || error || '');
+      const local = await tryLocalStaff(pin, localStaff);
+      if (local) {
+        await rememberOfflineUser(local, pin);
+        return { ok: true, user: local };
+      }
+      if (/failed to fetch|networkerror|TypeError/i.test(msg)) {
+        return {
+          ok: false,
+          error:
+            'Cannot reach Supabase (network). Check internet, that the site uses https://tvjdblbxmlteszcigckj.supabase.co, and that SQL setup was run.',
+        };
+      }
+      return { ok: false, error: msg || 'Unable to reach the login server. Check your connection and try again.' };
     }
   }
 

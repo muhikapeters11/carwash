@@ -1,12 +1,9 @@
+import { isSupabaseConfigured as cloudConfigured } from './supabase';
 /** Runtime config — production vs demo / desktop */
 
 const env = import.meta.env;
 
-export const isSupabaseConfigured = Boolean(
-  (env.VITE_SUPABASE_URL as string | undefined)?.trim() &&
-    (env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() &&
-    !(env.VITE_SUPABASE_URL as string).includes('placeholder')
-);
+export const isSupabaseConfigured = cloudConfigured;
 
 /** True when built for Electron (desktop installer). */
 export const isElectronBuild = env.VITE_IS_ELECTRON === 'true';
