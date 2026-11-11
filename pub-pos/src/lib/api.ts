@@ -54,13 +54,15 @@ export async function serverRecordCreditPayment(opts: {
   amount: number;
   by: string;
   byName: string;
+  clientPaymentId: string;
 }): Promise<{ ok: boolean; error?: string; paid?: number }> {
   if (!isSupabaseConfigured) return { ok: false, error: 'Server not configured' };
-  const { data, error } = await supabase.rpc('record_credit_payment', {
+  const { data, error } = await supabase.rpc('record_credit_payment_once', {
     p_credit_id: opts.creditId,
     p_amount: opts.amount,
     p_by: opts.by,
     p_by_name: opts.byName,
+    p_client_payment_id: opts.clientPaymentId,
   });
   if (error) return { ok: false, error: error.message };
   if (!data?.ok) return { ok: false, error: String(data?.error || 'Failed') };

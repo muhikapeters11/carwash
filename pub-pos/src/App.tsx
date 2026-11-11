@@ -87,9 +87,10 @@ function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Await
     patch.sales = [...pendingLocal, ...data.sales].slice(0, 1000);
   }
   if (data.credits !== undefined) {
+    const cloudCredits = data.credits || [];
     // Keep local-only credits (cashier credit sales not yet flushed) so they
     // remain visible on the admin Credit tab until the cloud catches up.
-    const remoteCreditIds = new Set(data.credits.map((c) => c.id));
+    const remoteCreditIds = new Set(cloudCredits.map((c) => c.id));
     const remoteSaleIds = new Set((data.sales || st.sales).map((s) => s.id));
     const pendingLocalCredits = cloudResetDetected
       ? []
@@ -97,12 +98,12 @@ function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Await
           (c) =>
             !remoteCreditIds.has(c.id) &&
             // Prefer matching by sale_id when the sale is still only local
-            (!c.sale_id || !remoteSaleIds.has(c.sale_id) || !data.credits.some((rc) => rc.sale_id === c.sale_id))
+            (!c.sale_id || !remoteSaleIds.has(c.sale_id) || !cloudCredits.some((rc) => rc.sale_id === c.sale_id))
         );
     // Prefer cloud credit when both exist for the same sale
-    const cloudBySale = new Set(data.credits.map((c) => c.sale_id).filter(Boolean));
+    const cloudBySale = new Set(cloudCredits.map((c) => c.sale_id).filter(Boolean));
     const mergedLocal = pendingLocalCredits.filter((c) => !c.sale_id || !cloudBySale.has(c.sale_id));
-    patch.credits = [...mergedLocal, ...data.credits];
+    patch.credits = [...mergedLocal, ...cloudCredits];
   }
   if (data.expenses !== undefined) patch.expenses = data.expenses;
   if (data.settings) patch.settings = { ...st.settings, ...data.settings, currency: 'KES' };
@@ -224,6 +225,7 @@ export default function App() {
   const activeTab = useStore((s) => s.activeTab);
   const cleanExpiredHolds = useStore((s) => s.cleanExpiredHolds);
   const theme = useStore((s) => s.theme);
+  const businessDayHour = useStore((s) => s.settings.business_day_hour);
   const syncing = useRef(false);
 
   const setSyncIndicator = (value: boolean) => {
@@ -300,13 +302,12 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    const hour = useStore.getState().settings.business_day_hour;
-    if (typeof hour === 'number') {
+    if (typeof businessDayHour === 'number') {
       void import('./utils/businessDay').then(({ setBusinessDayCutOffHour }) => {
-        setBusinessDayCutOffHour(hour);
+        setBusinessDayCutOffHour(businessDayHour);
       });
     }
-  }, []);
+  }, [businessDayHour]);
 
   useEffect(() => {
     const interval = setInterval(cleanExpiredHolds, 60_000);
@@ -334,11 +335,12 @@ export default function App() {
       void syncFull();
     }, 90_000);
 
-    // Lightweight poll so web / desktop / phone stay close even if one event is missed.
+    // Short safety poll covers suspended tabs and transient Realtime disconnects.
+    // Normal updates arrive through Realtime within a fraction of a second.
     const hotId = setInterval(() => {
-      if (!isOnline()) return;
+      if (!isOnline() || document.visibilityState !== 'visible') return;
       void syncHot();
-    }, 20_000);
+    }, 5_000);
 
     const onFocus = () => {
       if (isOnline()) void syncHot();

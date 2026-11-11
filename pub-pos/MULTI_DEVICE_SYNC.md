@@ -1,63 +1,51 @@
-# Same data on web, desktop, and mobile
+# Multi-device sync and offline recovery
 
-This POS is designed so **every online device shares one cloud database** (Supabase).
+The web app, Electron desktop app, and mobile browser must all use the **same Supabase project**. They share the same cloud tables; local storage is only a per-device cache and offline outbox.
 
-## What stays the same across devices
+## What is synchronized
 
-| Data | Shared? |
-|------|---------|
-| Products & stock | Yes |
-| Sales & receipts | Yes |
-| Credits & payments | Yes |
-| Expenses | Yes |
-| Stock receives | Yes |
-| Held sales | Yes |
-| Staff users | Yes |
-| Pub settings / branding | Yes |
-| Activity log | Yes |
-| **Open cart on Sell screen** | **No** (per device only) |
+Products and stock, sales and sale items, credit balances/payments, expenses, stock-receive records, held sales, staff profiles, app settings, and activity logs are stored in Supabase and pulled by all signed-in clients. An uncompleted open cart remains local to the device; a completed or held sale is shared.
 
-## How sync works
+## Sync behaviour in this build
 
-1. **Write** on any till → saved locally, then pushed to Supabase (or queued if offline).
-2. **Realtime** notifies other devices within about 1–2 seconds when online.
-3. **Hot pull** every 20 seconds (products, sales, credits, holds, expenses, stock, logs).
-4. **Full pull** every 90 seconds as a safety net.
-5. **Focus / tab visible / back online** triggers an immediate pull.
-6. Offline sales and product edits wait in a queue and flush when the network returns.
+- Supabase Realtime events trigger a debounced pull (about 120 ms after the related database event burst).
+- A 5-second visible-tab safety poll catches events missed during a suspended tab or Realtime interruption.
+- Focus, tab visibility, manual refresh, and reconnect trigger an immediate pull.
+- Sales, product snapshots, expenses, stock receives, held sales, settings, and activity log writes are retained in the local outbox when the network is unavailable or a write fails. The outbox retries after reconnect and during normal sync cycles.
+- Sale retries use the sale's stable local ID as the server idempotency key, preventing a repeated retry from creating a second sale. Credit collection retries use a stable payment ID and the `record_credit_payment_once` RPC, preventing a retry from applying the same payment twice.
 
-## Requirements
+Realtime is near-real-time, not a guarantee of zero latency. Actual delivery depends on network quality and Supabase Realtime availability. The 5-second poll is the fallback.
 
-1. **Same Supabase project** on web, desktop, and phone  
-   - Same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (already in `netlify.toml` for the web build).
-2. **Internet** on each device while you need live matching data.
-3. Run once in Supabase SQL Editor:
+## Required Supabase setup
 
-```text
-supabase/enable_cloud_sync.sql
-```
+1. Confirm all clients use the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` values. The desktop build and hosted web build must point to the same project.
+2. Ensure the base database has been created with `supabase/schema.sql` (and the project's required checkout/login migrations). Then run `supabase/MULTI_DEVICE_SYNC_MIGRATION.sql` once in the Supabase SQL Editor. This adds the shared data tables to the `supabase_realtime` publication where they exist.
+3. In Supabase Dashboard, confirm **Database → Publications → supabase_realtime** includes `products`, `sales`, `sale_items`, `stock_receives`, `expenses`, `credits`, `credit_payments`, `app_settings`, `profiles`, `held_sales`, and `activity_logs`.
+4. Confirm the existing POS RLS policies and table grants from the project's setup scripts are present. Do not replace production policies with broader policies unless you have reviewed the security impact.
+5. Deploy the updated web build and rebuild/reinstall the Electron desktop app. A client running an older build will not have the expanded offline outbox or faster sync loop.
 
-That turns on Realtime for products, sales, holds, expenses, etc.
+## Device setup
 
-## Device types
+| Client | Setup |
+|---|---|
+| Web | Deploy the Vite `dist/` build with the correct Supabase environment variables |
+| Mobile | Open the same hosted web URL; Add to Home Screen is optional |
+| Desktop | Build Electron from this same repository with the same Supabase project values |
 
-| Client | How it runs |
-|--------|-------------|
-| **Web / mobile browser** | Netlify (or any static host) of this app |
-| **Desktop** | Electron build of the **same** codebase and same env keys |
-| **Phone** | Browser to the Netlify URL (Add to Home Screen optional) |
+There is no separate mobile database. The phone browser uses the same hosted application and Supabase project.
 
-There is no separate “mobile database”. Phone = web app against the same cloud.
+## Verification checklist
 
-## If one device looks different
+1. Open the same business account on two devices.
+2. Add or edit a product on device A; verify device B updates without a manual refresh.
+3. Complete a sale on A; verify the receipt and reduced stock appear on B.
+4. Receive stock, add an expense, edit settings, and create a held sale; verify each appears on B.
+5. Temporarily disconnect A, create a sale and an expense, then reconnect A. Confirm the outbox drains and the records appear on B. Do not clear browser data while queued writes are pending.
+6. Check the browser console and Supabase logs if a row does not appear. A failed RLS policy, missing table/column, or disabled Realtime publication must be fixed in Supabase; client polling cannot repair a rejected database write.
 
-1. Check the yellow/pink/red sync indicator (online / syncing / offline).
-2. Tap the refresh/sync control in the header.
-3. Confirm all devices use the same Supabase URL.
-4. Re-run `enable_cloud_sync.sql` if Realtime was never enabled.
-5. Wait up to ~20 seconds for the next hot pull, or reopen the app.
+## Important limits
 
-## Intentional differences
-
-- **Cart** is local until you complete or hold the sale.
-- **Offline** devices keep working; other devices see those changes after reconnect + flush.
+- Open carts and unsaved form contents are intentionally device-local.
+- Two devices editing the same product while offline can produce a last-write-wins product snapshot when both reconnect. Avoid simultaneous offline edits to the same stock/product record; stock-changing sales are processed by the server transaction when online.
+- A device must reconnect to upload its own offline outbox. Other devices cannot see records that have not yet reached Supabase.
+- Never uninstall/clear site data on a device with pending offline sales or queued changes. Export/backup first if the device is being replaced.

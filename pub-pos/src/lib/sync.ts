@@ -108,12 +108,12 @@ export async function pullAllData(prevProducts: Product[] = []): Promise<PullRes
       .from('credits')
       .select('id,customer_name,amount,paid_amount,remaining,sale_id,created_at,credit_payments(id,credit_id,amount,paid_at,recorded_by)')
       .order('created_at', { ascending: false })
-      .limit(100),
-    supabase.from('expenses').select('id,description,amount,created_by,created_at').order('created_at', { ascending: false }).limit(100),
-    supabase.from('app_settings').select('id,pub_name,logo_url,login_bg_url,till_number,receipt_footer,currency,factory_reset_at').eq('id', 1).maybeSingle(),
-    supabase.from('activity_logs').select('id,user_id,user_name,action,details,created_at').order('created_at', { ascending: false }).limit(80),
-    supabase.from('stock_receives').select('id,product_id,product_name,quantity,unit_cost,total_cost,receipt_no,supplier,received_by,created_at').order('created_at', { ascending: false }).limit(80),
-    supabase.from('held_sales').select('*').order('created_at', { ascending: false }).limit(50),
+      .limit(1000),
+    supabase.from('expenses').select('id,description,amount,category,note,created_by,created_at').order('created_at', { ascending: false }).limit(1000),
+    supabase.from('app_settings').select('id,pub_name,logo_url,login_bg_url,till_number,receipt_footer,currency,factory_reset_at,business_day_hour,receipt_show_cost').eq('id', 1).maybeSingle(),
+    supabase.from('activity_logs').select('id,user_id,user_name,action,details,created_at').order('created_at', { ascending: false }).limit(1000),
+    supabase.from('stock_receives').select('id,product_id,product_name,quantity,barrels,unit_cost,total_cost,receipt_no,supplier,received_by,received_by_name,created_at').order('created_at', { ascending: false }).limit(1000),
+    supabase.from('held_sales').select('*').order('created_at', { ascending: false }).limit(200),
   ]);
 
   // A failed query must never be interpreted as an empty table. This was
@@ -138,6 +138,8 @@ export async function pullAllData(prevProducts: Product[] = []): Promise<PullRes
       receipt_footer: r.receipt_footer || '',
       currency: 'KES',
       factory_reset_at: r.factory_reset_at || undefined,
+      business_day_hour: Number(r.business_day_hour ?? 9),
+      receipt_show_cost: !!r.receipt_show_cost,
     };
   }
 
@@ -173,6 +175,8 @@ export async function pullAllData(prevProducts: Product[] = []): Promise<PullRes
       id: String(e.id),
       description: e.description,
       amount: Number(e.amount),
+      category: e.category || 'misc',
+      note: e.note || undefined,
       created_by: e.created_by,
       created_at: e.created_at,
     })),
@@ -242,13 +246,13 @@ export async function pullHotData(prevProducts: Product[] = []): Promise<Partial
       .from('credits')
       .select('id,customer_name,amount,paid_amount,remaining,sale_id,created_at,credit_payments(id,credit_id,amount,paid_at,recorded_by)')
       .order('created_at', { ascending: false })
-      .limit(50),
+      .limit(1000),
     supabase.from('profiles').select('id,email,full_name,role,permissions,is_active').order('created_at', { ascending: true }),
-    supabase.from('app_settings').select('id,pub_name,logo_url,login_bg_url,till_number,receipt_footer,currency,factory_reset_at').eq('id', 1).maybeSingle(),
-    supabase.from('held_sales').select('*').order('created_at', { ascending: false }).limit(50),
-    supabase.from('expenses').select('id,description,amount,created_by,created_at').order('created_at', { ascending: false }).limit(100),
-    supabase.from('stock_receives').select('id,product_id,product_name,quantity,unit_cost,total_cost,receipt_no,supplier,received_by,created_at').order('created_at', { ascending: false }).limit(80),
-    supabase.from('activity_logs').select('id,user_id,user_name,action,details,created_at').order('created_at', { ascending: false }).limit(80),
+    supabase.from('app_settings').select('id,pub_name,logo_url,login_bg_url,till_number,receipt_footer,currency,factory_reset_at,business_day_hour,receipt_show_cost').eq('id', 1).maybeSingle(),
+    supabase.from('held_sales').select('*').order('created_at', { ascending: false }).limit(200),
+    supabase.from('expenses').select('id,description,amount,category,note,created_by,created_at').order('created_at', { ascending: false }).limit(1000),
+    supabase.from('stock_receives').select('id,product_id,product_name,quantity,barrels,unit_cost,total_cost,receipt_no,supplier,received_by,received_by_name,created_at').order('created_at', { ascending: false }).limit(1000),
+    supabase.from('activity_logs').select('id,user_id,user_name,action,details,created_at').order('created_at', { ascending: false }).limit(1000),
   ]);
 
   const queryErrors = [prodRes, salesRes, credRes, profRes, setRes, heldRes, expRes, recvRes, actRes]
@@ -264,6 +268,8 @@ export async function pullHotData(prevProducts: Product[] = []): Promise<Partial
     receipt_footer: setRes.data.receipt_footer || '',
     currency: 'KES',
     factory_reset_at: setRes.data.factory_reset_at || undefined,
+    business_day_hour: Number(setRes.data.business_day_hour ?? 9),
+    receipt_show_cost: !!setRes.data.receipt_show_cost,
   } : null;
 
   const heldSales = (heldRes.data || []).map((h: any) => {
@@ -331,6 +337,8 @@ export async function pullHotData(prevProducts: Product[] = []): Promise<Partial
       id: String(e.id),
       description: e.description,
       amount: Number(e.amount),
+      category: e.category || 'misc',
+      note: e.note || undefined,
       created_by: e.created_by,
       created_at: e.created_at,
     })),
@@ -358,8 +366,8 @@ export async function pushLocalProductsIfNeeded(local: Product[]): Promise<numbe
   if (error || !data) return 0;
   // Import tombstone check lazily to avoid circular deps at module load.
   const { isProductTombstoned } = await import('./tombstones');
-  const byId = new Map((data || []).map((r: any) => [String(r.id), r]));
-  const bySku = new Map((data || []).map((r: any) => [String(r.sku).toLowerCase(), r]));
+  const byId = new Map<string, any>((data || []).map((r: any) => [String(r.id), r]));
+  const bySku = new Map<string, any>((data || []).map((r: any) => [String(r.sku).toLowerCase(), r]));
   let n = 0;
   let failed = false;
   for (const p of local) {
@@ -413,8 +421,10 @@ export async function pushProduct(p: Product): Promise<{ ok: boolean; error?: st
         });
         if (uploadError) throw uploadError;
         publicUrl = supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+        if (!publicUrl) throw new Error('Storage did not return a public image URL');
         uploadedImageUrls.set(p.id, { source: cloudImageUrl, url: publicUrl });
       }
+      if (!publicUrl) throw new Error('Product image URL is unavailable');
       cloudImageUrl = publicUrl;
     } catch (e: any) {
       return { ok: false, error: `Product image upload failed: ${e?.message || 'storage unavailable'}` };
@@ -481,6 +491,8 @@ export async function pushExpense(e: Expense): Promise<{ ok: boolean; error?: st
     id: e.id,
     description: e.description,
     amount: e.amount,
+    category: e.category || 'misc',
+    note: e.note || null,
     created_by: e.created_by,
     created_at: e.created_at,
   });
@@ -506,6 +518,8 @@ export async function pushStockReceive(row: {
     product_id: row.product_id,
     product_name: row.product_name,
     quantity: row.quantity,
+    barrels: (row as any).barrels ?? null,
+    received_by_name: (row as any).received_by_name ?? null,
     unit_cost: row.unit_cost,
     total_cost: row.total_cost,
     receipt_no: row.receipt_no || null,
@@ -525,6 +539,8 @@ export async function pushSettings(s: AppSettings): Promise<{ ok: boolean; error
     till_number: s.till_number || 'TILL-001',
     receipt_footer: s.receipt_footer || '',
     currency: 'KES',
+    business_day_hour: s.business_day_hour ?? 9,
+    receipt_show_cost: !!s.receipt_show_cost,
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true };
@@ -533,11 +549,11 @@ export async function pushSettings(s: AppSettings): Promise<{ ok: boolean; error
 export function subscribeRealtime(onChange: () => void): () => void {
   if (!isSupabaseConfigured) return () => {};
   let timer: ReturnType<typeof setTimeout> | null = null;
-  // Longer debounce so a burst of Realtime events (sale + items + credits)
-  // does not keep the UI in a permanent "syncing" state.
+  // Coalesce related transaction events (sale + items + credit) without
+  // imposing multi-second lag on other devices.
   const debounced = () => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => onChange(), 1500);
+    timer = setTimeout(() => onChange(), 120);
   };
   const channel = supabase
     .channel('pos-cloud-sync')
@@ -547,6 +563,7 @@ export function subscribeRealtime(onChange: () => void): () => void {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_receives' }, debounced)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, debounced)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'credits' }, debounced)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'credit_payments' }, debounced)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, debounced)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, debounced)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_logs' }, debounced)

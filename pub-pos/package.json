@@ -12,8 +12,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "electron:dev": "npx concurrently -k \"vite\" \"npx wait-on http://127.0.0.1:5173 && npx cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 npx electron .\"",
-    "electron:build": "npx cross-env ELECTRON=true vite build && npx electron-builder --dir",
-    "electron:dist": "npx cross-env ELECTRON=true vite build && npx electron-builder"
+    "electron:build": "npx cross-env ELECTRON=true VITE_ALLOW_DEMO=false VITE_SUPABASE_URL=https://wrtmswnfgutlmkjzdzaj.supabase.co VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndydG1zd25mZ3V0bG1ranpkemFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxODk0MjQsImV4cCI6MjEwOTc2NTQyNH0.y9jMZnWY5A5py9Vrvkkow6OFAwIQkpgbOFPPWFK77DQ vite build && npx electron-builder --dir",
+    "electron:dist": "npx cross-env ELECTRON=true VITE_ALLOW_DEMO=false VITE_SUPABASE_URL=https://wrtmswnfgutlmkjzdzaj.supabase.co VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndydG1zd25mZ3V0bG1ranpkemFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxODk0MjQsImV4cCI6MjEwOTc2NTQyNH0.y9jMZnWY5A5py9Vrvkkow6OFAwIQkpgbOFPPWFK77DQ vite build && npx electron-builder"
   },
   "dependencies": {
     "react": "^18.3.1",

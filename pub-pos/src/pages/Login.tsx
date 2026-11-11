@@ -3,7 +3,7 @@ import { Eye, EyeOff, Lock, Sun, Moon } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { loginWithPin, buildDemoUsers } from '../lib/auth';
-import { allowDemoMode } from '../lib/config';
+import { allowDemoMode, isSupabaseConfigured, isElectronBuild } from '../lib/config';
 
 const LOCK_KEY = 'pub-pos-lock-until';
 const FAIL_KEY = 'pub-pos-fail-count';
@@ -284,12 +284,29 @@ export default function Login() {
           ) : (
             <>
               <h2
-                className={`font-semibold mb-6 ${isMobile ? 'text-xl' : 'text-2xl md:text-3xl'} ${
+                className={`font-semibold mb-2 ${isMobile ? 'text-xl' : 'text-2xl md:text-3xl'} ${
                   isDark ? 'text-white' : 'text-gray-900'
                 }`}
               >
                 Enter PIN
               </h2>
+              <p
+                className={`text-xs mb-4 ${
+                  isSupabaseConfigured
+                    ? isDark
+                      ? 'text-emerald-400/90'
+                      : 'text-emerald-700'
+                    : isDark
+                      ? 'text-amber-300/90'
+                      : 'text-amber-700'
+                }`}
+              >
+                {isSupabaseConfigured
+                  ? isElectronBuild
+                    ? 'Desktop · connected to the same cloud as web & mobile'
+                    : 'Cloud connected · same data on every device'
+                  : 'Local-only mode · rebuild desktop with cloud keys to match web'}
+              </p>
 
               {/* Hidden native PIN input for mobile system keyboard */}
               {isMobile && (

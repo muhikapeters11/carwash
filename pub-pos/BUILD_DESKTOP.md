@@ -1,56 +1,43 @@
 # Build the Desktop App (Windows / macOS / Linux)
 
-## Prerequisites
-- Node.js **18, 20 or 22** recommended
-- A `.env` file in `pub-pos/` (copy from `.env.example` if missing)
+Desktop, web, and mobile **must use the same Supabase project**.  
+Vite now **bakes the production URL + anon key** into every Electron build (same values as Netlify), so the installer matches the live web app even if `.env` is missing.
 
-## First-time cloud login setup
+## Build installer
 
-1. Keep the supplied `.env` file in the `pub-pos` project folder. It points to the configured Supabase project. Do not replace the anon key with a service-role key.
-2. In Supabase SQL Editor, run `supabase/REPAIR_LOGIN_CREDENTIALS.sql` once. This creates/updates the Admin and Cashier profiles and sets their bcrypt PIN hashes without deleting sales, products, or stock.
-3. Confirm both profiles are active. The login screen currently asks for the six-digit PIN only; the email is the staff account identifier stored in Supabase.
-4. Then build the installer using the commands below.
-
-## Clean install
-
-```cmd
-rmdir /s /q node_modules
-del package-lock.json
+```bash
 npm install
-```
-
-## Build installer (includes logo from electron/resources/icon.png)
-
-```cmd
 npm run electron:dist
 ```
 
-Installer → `release\Carwash-Setup-1.1.0.exe`
+Installer → `release/Carwash-Setup-*.exe` (Windows) or the platform equivalent.
 
 ## Dev window
 
-```cmd
+```bash
 npm run electron:dev
 ```
 
-## Cloud login PINs (after running REPAIR_LOGIN_CREDENTIALS.sql)
+## Login (same as web)
 
-### Cloud / production (after schema.sql on Supabase)
-| Role    | PIN    |
-|---------|--------|
-| Admin   | **233456** |
+Use the **cloud admin/cashier PINs** (from Supabase), not old demo-only PINs, when the PC is online.
+
+| Role    | Typical cloud PIN (after seed/repair SQL) |
+|---------|-------------------------------------------|
+| Admin   | **233456** (or the PIN you set in Supabase) |
 | Cashier | **222222** |
 
-### Local demo (works offline / first launch on desktop)
-| Role    | PIN    |
-|---------|--------|
-| Admin   | **482916** |
-| Cashier | **739154** |
+After one successful **online** login, that PIN is cached for offline use on this PC.
 
-If cloud login fails (no internet / RPC error), desktop still accepts the **demo PINs** above.
+## If desktop still shows different data
 
-After one successful login online, that PIN is cached and works offline.
+1. Rebuild with `npm run electron:dist` (this package includes the cloud bake-in fix).
+2. Confirm the PC is **online** and the yellow/pink sync indicator is not red/offline.
+3. Sign out and sign in again with the **same cloud PIN** used on the phone/web.
+4. Optional: clear this PC’s local cache only — in the desktop app open DevTools (if available) or reinstall; cloud data is not deleted.
+5. Tap the header **refresh/sync** control after login.
 
 ## Important
-- Always build with a `.env` present so Supabase URL/key are baked into the app.
-- `npm run electron:dist` sets `ELECTRON=true` so relative asset paths and desktop login fallback work.
+
+- Do **not** build a custom desktop pointing at a different Supabase project than Netlify.
+- `ELECTRON=true` uses relative asset paths (`base: './'`) for `file://` loading.

@@ -58,7 +58,7 @@ Data stays in `localStorage` until you connect Supabase.
 
 ## Deploy (recommended)
 
-See **[DEPLOY.md](DEPLOY.md)** — only 3 steps:
+See **[DEPLOY.md](DEPLOY.md)** for deployment. For the updated multi-device outbox and Realtime configuration, also follow **[MULTI_DEVICE_SYNC.md](MULTI_DEVICE_SYNC.md)** — the SQL migration there must be run in Supabase.
 
 1. Run `supabase/schema.sql`, then `supabase/fast_checkout_idempotency.sql` in your Supabase SQL Editor  
 2. Add 3 environment variables on Netlify  

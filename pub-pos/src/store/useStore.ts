@@ -1,9 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { serverCompleteSale, cartToServerItems, serverRecordCreditPayment } from '../lib/api';
-import { isOnline, enqueueSale, enqueueProduct, flushOfflineQueue, removeProductFromQueue } from '../lib/offline';
-import { pushProduct, deleteProductRemote, deleteHeldSaleRemote, pushExpense, pushStockReceive, pullAllData, pushSettings } from '../lib/sync';
+import { serverCompleteSale, cartToServerItems } from '../lib/api';
+import { isOnline, enqueueSale, enqueueProduct, enqueueCreditPayment, enqueueCloudUpsert, enqueueCloudDelete, enqueueProductDelete, flushOfflineQueue, removeProductFromQueue } from '../lib/offline';
 import { markProductDeleted, markHeldDeleted } from '../lib/tombstones';
 import type {
   Product, CartItem, Sale, HeldSale, Credit, Expense,
@@ -207,9 +206,7 @@ export const useStore = create<AppState>()(
             .filter((h) => h.items.length > 0),
         }));
         if (isSupabaseConfigured) {
-          void deleteProductRemote(id).then((res) => {
-            if (!res.ok) console.warn('product delete remote failed', res.error);
-          });
+          enqueueProductDelete(id);
           notifyLocalWrite();
         }
       },
@@ -308,18 +305,14 @@ export const useStore = create<AppState>()(
             cart: [],
           }));
           if (isSupabaseConfigured) {
-            void import('../lib/supabase').then(({ supabase }) => {
-              void supabase.from('held_sales').upsert({
-                id: held.id,
-                customer_name: held.customer_name,
-                items: held.items,
-                cashier_id: currentUser?.id || null,
-                created_at: held.created_at,
-                expires_at: held.expires_at,
-              }).then(({ error }) => {
-                if (error) console.warn('held_sales upsert failed', error.message);
-              });
-            }).catch((e) => console.warn('held_sales push failed', e));
+            enqueueCloudUpsert('held_sales', {
+              id: held.id,
+              customer_name: held.customer_name,
+              items: held.items,
+              cashier_id: currentUser?.id || null,
+              created_at: held.created_at,
+              expires_at: held.expires_at,
+            });
             notifyLocalWrite();
           }
         } catch (e) {
@@ -355,21 +348,13 @@ export const useStore = create<AppState>()(
           heldSales: s.heldSales.filter((h) => h.id !== id),
         }));
         // Remove from cloud so a later pull does not put the held sale back.
-        if (isSupabaseConfigured) {
-          void deleteHeldSaleRemote(id).then((res) => {
-            if (!res.ok) console.warn('held sale delete on resume failed', res.error);
-          });
-        }
+        if (isSupabaseConfigured) enqueueCloudDelete('held_sales', id);
         return { ok: true };
       },
       removeHeldSale: (id) => {
         markHeldDeleted(id);
         set((s) => ({ heldSales: s.heldSales.filter((h) => h.id !== id) }));
-        if (isSupabaseConfigured) {
-          void deleteHeldSaleRemote(id).then((res) => {
-            if (!res.ok) console.warn('held sale delete remote failed', res.error);
-          });
-        }
+        if (isSupabaseConfigured) enqueueCloudDelete('held_sales', id);
       },
       cleanExpiredHolds: () => {
         const now = Date.now();
@@ -380,11 +365,7 @@ export const useStore = create<AppState>()(
         // Tombstone + remote delete so a later cloud pull cannot bring them back.
         for (const h of expired) {
           markHeldDeleted(h.id);
-          if (isSupabaseConfigured) {
-            void deleteHeldSaleRemote(h.id).then((res) => {
-              if (!res.ok) console.warn('expired held sale delete remote failed', res.error);
-            });
-          }
+          if (isSupabaseConfigured) enqueueCloudDelete('held_sales', h.id);
         }
         set((s) => ({
           heldSales: s.heldSales.filter(
@@ -542,16 +523,10 @@ export const useStore = create<AppState>()(
         if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: 'Invalid amount' };
         const paid = Math.min(credit.remaining, Math.round(amount * 100) / 100);
 
-        // Fire server RPC so all devices share the payment (best-effort async)
+        // Queue before network I/O. The stable ID makes server retries safe.
+        const paymentId = crypto.randomUUID();
         if (isSupabaseConfigured) {
-          void serverRecordCreditPayment({
-            creditId,
-            amount: paid,
-            by,
-            byName,
-          }).then((res) => {
-            if (!res.ok) console.warn('server credit payment failed', res.error);
-          });
+          enqueueCreditPayment({ creditId, amount: paid, by, byName, clientPaymentId: paymentId });
           notifyLocalWrite();
         }
 
@@ -567,7 +542,7 @@ export const useStore = create<AppState>()(
               payments: [
                 ...c.payments,
                 {
-                  id: crypto.randomUUID(),
+                  id: paymentId,
                   credit_id: creditId,
                   amount: paid,
                   paid_at: new Date().toISOString(),
@@ -579,7 +554,7 @@ export const useStore = create<AppState>()(
         }));
 
         const collectionSale: Sale = {
-          id: crypto.randomUUID(),
+          id: paymentId,
           items: [],
           total: paid,
           cost_total: 0,
@@ -601,7 +576,7 @@ export const useStore = create<AppState>()(
       addExpense: (e) => {
         set((s) => ({ expenses: [e, ...s.expenses] }));
         if (isSupabaseConfigured) {
-          void pushExpense(e);
+          enqueueCloudUpsert('expenses', { id: e.id, description: e.description, amount: e.amount, category: e.category || 'misc', note: e.note || null, created_by: e.created_by, created_at: e.created_at });
           notifyLocalWrite();
         }
       },
@@ -609,18 +584,12 @@ export const useStore = create<AppState>()(
       stockReceives: [],
       addStockReceive: (r) => {
         set((s) => ({ stockReceives: [r, ...s.stockReceives] }));
-        if (isSupabaseConfigured && isOnline()) {
-          void pushStockReceive({
-            id: r.id,
-            product_id: r.product_id,
-            product_name: r.product_name,
-            quantity: r.quantity,
-            unit_cost: r.unit_cost,
-            total_cost: r.total_cost,
-            receipt_no: r.receipt_no,
-            supplier: r.supplier,
-            received_by: r.received_by,
-            created_at: r.created_at,
+        if (isSupabaseConfigured) {
+          enqueueCloudUpsert('stock_receives', {
+            id: r.id, product_id: r.product_id, product_name: r.product_name,
+            quantity: r.quantity, barrels: r.barrels ?? null, unit_cost: r.unit_cost, total_cost: r.total_cost,
+            receipt_no: r.receipt_no || null, supplier: r.supplier || null,
+            received_by: r.received_by || null, received_by_name: r.received_by_name || null, created_at: r.created_at,
           });
           notifyLocalWrite();
         }
@@ -641,16 +610,11 @@ export const useStore = create<AppState>()(
           activityLogs: [entry, ...s.activityLogs].slice(0, 500),
         }));
         if (isSupabaseConfigured) {
-          void import('../lib/supabase').then(({ supabase }) => {
-            void supabase.from('activity_logs').insert({
-              id: entry.id,
-              user_id: userId || null,
-              user_name: userName,
-              action,
-              details: details || null,
-              created_at: entry.created_at,
-            });
+          enqueueCloudUpsert('activity_logs', {
+            id: entry.id, user_id: userId || null, user_name: userName,
+            action, details: details || null, created_at: entry.created_at,
           });
+          notifyLocalWrite();
         }
       },
 
@@ -697,7 +661,12 @@ export const useStore = create<AppState>()(
         }
         if (isSupabaseConfigured) {
           const next = { ...get().settings, ...s };
-          void pushSettings(next);
+          enqueueCloudUpsert('app_settings', {
+            id: 1, pub_name: next.pub_name || 'My Pub', logo_url: next.logo_url || null,
+            login_bg_url: next.login_bg_url || null, till_number: next.till_number || 'TILL-001',
+            receipt_footer: next.receipt_footer || '', currency: 'KES',
+            business_day_hour: next.business_day_hour ?? 9, receipt_show_cost: !!next.receipt_show_cost,
+          });
           notifyLocalWrite();
         }
       },
