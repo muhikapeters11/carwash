@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { serverCompleteSale, cartToServerItems } from '../lib/api';
-import { isOnline, enqueueSale, enqueueProduct, enqueueCreditPayment, enqueueCloudUpsert, enqueueCloudDelete, enqueueProductDelete, flushOfflineQueue, removeProductFromQueue } from '../lib/offline';
+import { isOnline, enqueueSale, enqueueProduct, enqueueProductPatch, enqueueCreditPayment, enqueueCloudUpsert, enqueueCloudDelete, enqueueProductDelete, enqueueStockReceive, enqueueStockAudit, flushOfflineQueue, removeProductFromQueue } from '../lib/offline';
 import { markProductDeleted, markHeldDeleted } from '../lib/tombstones';
 import type {
   Product, CartItem, Sale, HeldSale, Credit, Expense,
@@ -93,6 +93,7 @@ interface AppState {
 
   stockReceives: StockReceive[];
   addStockReceive: (r: StockReceive) => void;
+  applyLocalStockChange: (productId: string, changes: { stock: number; cost?: number }) => void;
 
   activityLogs: ActivityLogEntry[];
   logActivity: (userId: string, userName: string, action: string, details?: string) => void;
@@ -153,6 +154,9 @@ export const useStore = create<AppState>()(
 
       products: [],
       setProducts: (products) => set({ products }),
+      applyLocalStockChange: (productId, changes) => {
+        set((s) => ({ products: s.products.map((p) => p.id === productId ? { ...p, ...changes } : p) }));
+      },
       addProduct: (p) => {
         const exists = get().products.some(
           (x) => x.sku.toLowerCase() === p.sku.toLowerCase()
@@ -168,6 +172,8 @@ export const useStore = create<AppState>()(
         return { ok: true };
       },
       updateProduct: (id, data) => {
+        const previous = get().products.find((p) => p.id === id);
+        if (!previous) return { ok: false, error: 'Product not found' };
         if (data.sku) {
           const clash = get().products.some(
             (x) => x.id !== id && x.sku.toLowerCase() === data.sku!.toLowerCase()
@@ -183,9 +189,16 @@ export const useStore = create<AppState>()(
         const updated = get().products.find((p) => p.id === id);
         if (updated) {
           // Guard Active/Inactive (and stock) so a hot pull cannot flip the toggle back.
-          guardProductEdit(updated);
+          guardProductEdit({ ...updated, stock: undefined });
           if (isSupabaseConfigured) {
-            enqueueProduct(updated);
+            const { stock, ...metadata } = data;
+            if (stock !== undefined && Number(stock) !== Number(previous.stock)) {
+              enqueueStockAudit({
+                adjustmentId: crypto.randomUUID(), productId: id, delta: Number(stock) - Number(previous.stock),
+                reason: 'Product stock edited', createdAt: new Date().toISOString(),
+              });
+            }
+            enqueueProductPatch(id, metadata);
             notifyLocalWrite();
           }
         }
@@ -585,15 +598,13 @@ export const useStore = create<AppState>()(
       addStockReceive: (r) => {
         set((s) => ({ stockReceives: [r, ...s.stockReceives] }));
         if (isSupabaseConfigured) {
-          enqueueCloudUpsert('stock_receives', {
-            id: r.id, product_id: r.product_id, product_name: r.product_name,
-            quantity: r.quantity, barrels: r.barrels ?? null, unit_cost: r.unit_cost, total_cost: r.total_cost,
-            receipt_no: r.receipt_no || null, supplier: r.supplier || null,
-            received_by: r.received_by || null, received_by_name: r.received_by_name || null, created_at: r.created_at,
+          enqueueStockReceive({
+            receiveId: r.id, productId: r.product_id, productName: r.product_name, quantity: r.quantity,
+            barrels: r.barrels, unitCost: r.unit_cost, totalCost: r.total_cost, receiptNo: r.receipt_no,
+            supplier: r.supplier, receivedBy: r.received_by, receivedByName: r.received_by_name, createdAt: r.created_at,
           });
           notifyLocalWrite();
         }
-        // Stock quantity itself is queued via updateProduct -> enqueueProduct
       },
 
       activityLogs: [],

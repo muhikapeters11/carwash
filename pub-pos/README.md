@@ -227,3 +227,12 @@ Sell receipt → **Print** tries **Web Serial ESC/POS**, then browser print fall
 3. Set env on host: Supabase URL/key, `VITE_ALLOW_DEMO=false`
 4. `npm run build` → deploy `dist/` over HTTPS
 5. Schedule DB backups in Supabase dashboard + use Export backup on each till weekly
+
+
+## Critical sales and inventory repair (November 2026)
+
+Before deploying this build, run `supabase/CRITICAL_SALES_STOCK_SYNC_FIX.sql` in the Supabase SQL Editor. This migration repairs the `complete_sale` transaction (the parent sale row is inserted before its sale-item rows, so the foreign key no longer aborts checkout), returns authoritative stock on idempotent retries, and adds idempotent atomic RPCs for stock receipts and physical stock audits.
+
+The client now queues stock receipts and audit adjustments in its durable offline outbox. Stock receipts increment the database quantity under a row lock and write the receive report in the same transaction. Audits apply the counted variance under a row lock and keep an idempotency record, preserving sales/receipts that occur while an audit device is offline. Existing product metadata edits update only the changed metadata columns; they no longer upsert a stale full product row over a stock deduction. New products still use a full insert.
+
+After running the migration, deploy the updated web build and rebuild/reinstall the desktop app. Test with a disposable product: record its opening quantity, sell one unit, confirm stock falls by one on Supabase and every device, refresh all clients, then receive stock and confirm the quantity and receive report persist. Finally take an inventory audit and verify its count persists after refresh. Do not use a real product for the first test.

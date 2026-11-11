@@ -376,10 +376,8 @@ export async function pushLocalProductsIfNeeded(local: Product[]): Promise<numbe
     if (remote) {
       // Backfill legacy locally-cached photos that were never uploaded because
       // their original base64 strings exceeded the old size cutoff.
-      if (p.image_url && !remote.image_url) {
-        const res = await pushProduct({ ...p, id: String(remote.id) });
-        if (res.ok) n += 1; else failed = true;
-      }
+      // Existing product rows are cloud-authoritative for stock. Never upsert a
+      // local full-row snapshot during bootstrap: it could undo sales on another device.
       continue;
     }
     const res = await pushProduct(p);
@@ -387,6 +385,20 @@ export async function pushLocalProductsIfNeeded(local: Product[]): Promise<numbe
   }
   if (!failed) localPushDone = true;
   return n;
+}
+
+
+export async function pushProductPatch(id: string, patch: Partial<Product>): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { ok: false, error: 'not configured' };
+  const allowed: Record<string, unknown> = {};
+  const keys: (keyof Product)[] = ['sku','name','category','price','cost','low_stock_threshold','is_barrel','barrel_cups','is_active'];
+  for (const key of keys) if (patch[key] !== undefined) allowed[key] = patch[key];
+  // Never upload a base64 image through a row update. Existing cloud image remains
+  // intact; normal URL image changes can be applied directly.
+  if (patch.image_url && !patch.image_url.startsWith('data:image/')) allowed.image_url = patch.image_url;
+  if (!Object.keys(allowed).length) return { ok: true };
+  const { error } = await supabase.from('products').update({ ...allowed, updated_at: new Date().toISOString() }).eq('id', id);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 export async function pushProduct(p: Product): Promise<{ ok: boolean; error?: string }> {

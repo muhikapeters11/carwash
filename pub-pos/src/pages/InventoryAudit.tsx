@@ -2,10 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import type { Product } from '../types';
 import NumericPad from '../components/NumericPad';
+import { enqueueStockAudit } from '../lib/offline';
 
 export default function InventoryAudit() {
   const products = useStore((s) => s.products);
-  const updateProduct = useStore((s) => s.updateProduct);
+  const applyLocalStockChange = useStore((s) => s.applyLocalStockChange);
   const currentUser = useStore((s) => s.currentUser)!;
   const addNotification = useStore((s) => s.addNotification);
   const logActivity = useStore((s) => s.logActivity);
@@ -43,7 +44,12 @@ export default function InventoryAudit() {
     const prevStock = selected.stock;
     const diff = actualQty - prevStock;
 
-    updateProduct(selected.id, { stock: actualQty });
+    applyLocalStockChange(selected.id, { stock: actualQty });
+    // Queue an idempotent absolute stock adjustment; the server locks the product row.
+    enqueueStockAudit({
+      adjustmentId: crypto.randomUUID(), productId: selected.id, delta: diff,
+      reason: reason.trim(), by: currentUser.id, byName: currentUser.full_name, createdAt: new Date().toISOString(),
+    });
 
     const detail = `${selected.name}: ${prevStock} → ${actualQty}${reason.trim() ? ` (${reason.trim()})` : ''}`;
     addNotification({

@@ -3,8 +3,8 @@
  * Flush runs in background — UI never freezes.
  */
 import { isSupabaseConfigured, supabase } from './supabase';
-import { serverCompleteSale, serverRecordCreditPayment } from './api';
-import { pushProduct, deleteProductRemote, deleteHeldSaleRemote } from './sync';
+import { serverCompleteSale, serverRecordCreditPayment, serverReceiveStock, serverSetStockOnce } from './api';
+import { pushProduct, pushProductPatch, deleteProductRemote, deleteHeldSaleRemote } from './sync';
 import type { Product, Sale } from '../types';
 
 export function isOnline(): boolean {
@@ -27,6 +27,11 @@ export type OfflineSaleJob = {
   created_at: string;
   tries: number;
 };
+
+export type OfflineStockReceiveJob = { id: string; type: 'stock_receive'; payload: Parameters<typeof serverReceiveStock>[0]; created_at: string; tries: number };
+export type OfflineStockAuditJob = { id: string; type: 'stock_audit'; payload: Parameters<typeof serverSetStockOnce>[0]; created_at: string; tries: number };
+
+export type OfflineProductPatchJob = { id: string; type: 'product_patch'; productId: string; payload: Partial<Product>; created_at: string; tries: number };
 
 export type OfflineProductJob = {
   id: string;
@@ -69,7 +74,7 @@ export type OfflineProductDeleteJob = {
   tries: number;
 };
 
-export type OfflineJob = OfflineSaleJob | OfflineProductJob | OfflineCreditPaymentJob | OfflineCloudUpsertJob | OfflineCloudDeleteJob | OfflineProductDeleteJob;
+export type OfflineJob = OfflineSaleJob | OfflineProductJob | OfflineProductPatchJob | OfflineStockReceiveJob | OfflineStockAuditJob | OfflineCreditPaymentJob | OfflineCloudUpsertJob | OfflineCloudDeleteJob | OfflineProductDeleteJob;
 
 const QUEUE_KEY = 'carwash-offline-queue';
 
@@ -105,12 +110,28 @@ export function clearOfflineQueue(): void {
 export function removeProductFromQueue(productId: string): void {
   try {
     const q = loadQueue().filter(
-      (j) => !(j.type === 'product' && String(j.payload?.id) === String(productId))
+      (j) => !((j.type === 'product' && String(j.payload?.id) === String(productId)) || (j.type === 'product_patch' && j.productId === productId) || (j.type === 'stock_audit' && j.payload.productId === productId) || (j.type === 'stock_receive' && j.payload.productId === productId))
     );
     saveQueue(q);
   } catch {
     /* ignore */
   }
+}
+
+export function enqueueStockReceive(payload: OfflineStockReceiveJob['payload']): void {
+  if (!isSupabaseConfigured) return;
+  const job: OfflineStockReceiveJob = { id: `stock-receive:${payload.receiveId}`, type: 'stock_receive', payload, created_at: new Date().toISOString(), tries: 0 };
+  const q = loadQueue();
+  if (!q.some((x) => x.id === job.id)) { q.push(job); saveQueue(q); }
+  if (isOnline()) void flushOfflineQueue();
+}
+
+export function enqueueStockAudit(payload: OfflineStockAuditJob['payload']): void {
+  if (!isSupabaseConfigured) return;
+  const job: OfflineStockAuditJob = { id: `stock-audit:${payload.adjustmentId}`, type: 'stock_audit', payload, created_at: new Date().toISOString(), tries: 0 };
+  const q = loadQueue();
+  if (!q.some((x) => x.id === job.id)) { q.push(job); saveQueue(q); }
+  if (isOnline()) void flushOfflineQueue();
 }
 
 export function enqueueSale(job: Omit<OfflineSaleJob, 'tries'>): void {
@@ -178,6 +199,18 @@ function queueLatestProduct(product: Product): void {
   saveQueue(q);
 }
 
+export function enqueueProductPatch(productId: string, patch: Partial<Product>): void {
+  if (!isSupabaseConfigured) return;
+  const id = `product-patch:${productId}`;
+  const q = loadQueue();
+  const existing = q.findIndex((j) => j.id === id && j.type === 'product_patch');
+  const prior = existing >= 0 && q[existing].type === 'product_patch' ? q[existing].payload : {};
+  const job: OfflineProductPatchJob = { id, type: 'product_patch', productId, payload: { ...prior, ...patch }, created_at: new Date().toISOString(), tries: 0 };
+  if (existing >= 0) q[existing] = job; else q.push(job);
+  saveQueue(q);
+  if (isOnline()) void flushOfflineQueue();
+}
+
 export function enqueueProduct(product: Product): void {
   if (!isSupabaseConfigured) return;
   if (!isOnline()) { queueLatestProduct(product); return; }
@@ -230,13 +263,32 @@ export async function flushOfflineQueue(
           // retrying the same clientSaleId safe.
           job.tries += 1;
           remain.push(job);
+        } else if (job.type === 'stock_receive') {
+          const res = await serverReceiveStock(job.payload);
+          if (res.ok) { result.products += 1; continue; }
+          job.tries += 1; remain.push(job);
+        } else if (job.type === 'stock_audit') {
+          const res = await serverSetStockOnce(job.payload);
+          if (res.ok) { result.products += 1; continue; }
+          job.tries += 1; remain.push(job);
         } else if (job.type === 'credit_payment') {
           const res = await serverRecordCreditPayment(job.payload);
           if (res.ok) continue;
           job.tries += 1;
           remain.push(job);
+        } else if (job.type === 'product_patch') {
+          const res = await pushProductPatch(job.productId, job.payload);
+          if (res.ok) continue;
+          job.tries += 1; remain.push(job);
         } else if (job.type === 'product') {
-          const res = await pushProduct(job.payload);
+          // Existing products must never receive a stale full-row stock snapshot.
+          // New products still use a full insert/upsert; existing rows get metadata only.
+          const { data: existingProduct, error: lookupError } = await supabase.from('products').select('id').eq('id', job.payload.id).maybeSingle();
+          if (lookupError) { job.tries += 1; remain.push(job); continue; }
+          const { stock: _ignoredStock, image_url: _ignoredImage, ...metadata } = job.payload;
+          const res = existingProduct
+            ? await pushProductPatch(job.payload.id, metadata)
+            : await pushProduct(job.payload);
           if (res.ok) {
             result.products += 1;
             await new Promise((r) => setTimeout(r, 20));

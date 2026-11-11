@@ -147,6 +147,8 @@ function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Await
         if (Array.isArray(q)) {
           for (const job of q) {
             if (job?.type === 'product' && job.payload?.id) pendingIds.add(String(job.payload.id));
+            if (job?.type === 'stock_receive' && job.payload?.productId) pendingIds.add(String(job.payload.productId));
+            if (job?.type === 'stock_audit' && job.payload?.productId) pendingIds.add(String(job.payload.productId));
           }
         }
       } catch {
@@ -183,11 +185,10 @@ function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Await
           if (typeof guard.cost === 'number') next.cost = guard.cost;
           if (typeof guard.name === 'string') next.name = guard.name;
         }
-        if (local && (pendingIds.has(cloudP.id) || guard)) {
-          if (Number(local.stock) !== Number(next.stock)) next = { ...next, stock: local.stock };
-          if ((local.is_active !== false) !== (next.is_active !== false)) {
-            next = { ...next, is_active: local.is_active !== false };
-          }
+        // Keep optimistic stock only while a stock receive/audit outbox job is pending.
+        // Metadata guards above are independent; never let a generic edit freeze stock.
+        if (local && pendingIds.has(cloudP.id) && Number(local.stock) !== Number(next.stock)) {
+          next = { ...next, stock: local.stock };
         }
         return next;
       });

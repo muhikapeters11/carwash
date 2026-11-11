@@ -73,6 +73,38 @@ export function cartToServerItems(cart: CartItem[]) {
   return cart.map((c) => ({ product_id: c.product.id, qty: c.quantity }));
 }
 
+
+export async function serverReceiveStock(opts: {
+  receiveId: string; productId: string; productName: string; quantity: number; barrels?: number;
+  unitCost: number; totalCost: number; receiptNo?: string; supplier?: string;
+  receivedBy?: string; receivedByName?: string; createdAt: string;
+}): Promise<{ ok: boolean; error?: string; stock?: number; cost?: number }> {
+  if (!isSupabaseConfigured) return { ok: false, error: 'Server not configured' };
+  const { data, error } = await supabase.rpc('record_stock_receive_once', {
+    p_receive_id: opts.receiveId, p_product_id: opts.productId, p_product_name: opts.productName,
+    p_quantity: opts.quantity, p_barrels: opts.barrels ?? null, p_unit_cost: opts.unitCost,
+    p_total_cost: opts.totalCost, p_receipt_no: opts.receiptNo || null, p_supplier: opts.supplier || null,
+    p_received_by: opts.receivedBy || null, p_received_by_name: opts.receivedByName || null,
+    p_created_at: opts.createdAt,
+  });
+  if (error) return { ok: false, error: error.message };
+  if (!data?.ok) return { ok: false, error: String(data?.error || 'Stock receive failed') };
+  return { ok: true, stock: Number(data.stock), cost: Number(data.cost) };
+}
+
+export async function serverSetStockOnce(opts: {
+  adjustmentId: string; productId: string; delta: number; reason?: string; by?: string; byName?: string; createdAt: string;
+}): Promise<{ ok: boolean; error?: string; stock?: number }> {
+  if (!isSupabaseConfigured) return { ok: false, error: 'Server not configured' };
+  const { data, error } = await supabase.rpc('set_product_stock_once', {
+    p_adjustment_id: opts.adjustmentId, p_product_id: opts.productId, p_delta: opts.delta,
+    p_reason: opts.reason || null, p_by: opts.by || null, p_by_name: opts.byName || null, p_created_at: opts.createdAt,
+  });
+  if (error) return { ok: false, error: error.message };
+  if (!data?.ok) return { ok: false, error: String(data?.error || 'Stock adjustment failed') };
+  return { ok: true, stock: Number(data.stock) };
+}
+
 /** Load all profiles from Supabase (for Users tab + permissions) */
 export async function fetchProfiles(): Promise<UserProfile[]> {
   if (!isSupabaseConfigured) return [];

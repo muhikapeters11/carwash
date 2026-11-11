@@ -8,7 +8,7 @@ import ProductImage from '../components/ProductImage';
 
 export default function ReceiveStock() {
   const products = useStore((s) => s.products);
-  const updateProduct = useStore((s) => s.updateProduct);
+  const applyLocalStockChange = useStore((s) => s.applyLocalStockChange);
   const addStockReceive = useStore((s) => s.addStockReceive);
   const stockReceives = useStore((s) => s.stockReceives);
   const logActivity = useStore((s) => s.logActivity);
@@ -85,7 +85,7 @@ export default function ReceiveStock() {
     const totalOldCost = product.cost * product.stock;
     const totalNewCost = unitCost * units;
     const newAvgCost = newStock > 0 ? (totalOldCost + totalNewCost) / newStock : unitCost;
-    updateProduct(product.id, {
+    applyLocalStockChange(product.id, {
       stock: newStock,
       cost: Math.round(newAvgCost * 100) / 100,
     });
