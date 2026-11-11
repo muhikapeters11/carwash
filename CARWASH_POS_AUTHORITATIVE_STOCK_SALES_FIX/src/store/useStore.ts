@@ -506,8 +506,8 @@ export const useStore = create<AppState>()(
             clientSaleId,
             items: cartToServerItems(cartSnapshot),
           });
-          if (!result.ok || !result.sale) {
-            return { ok: false, error: result.error || 'Supabase did not commit the sale. No stock was deducted.' };
+          if (result.ok === false || !result.sale) {
+            return { ok: false, error: result.ok === false ? result.error : 'Supabase did not confirm the sale.' };
           }
 
           const stockMap = new Map((result.stockUpdates || []).map((u) => [u.id, u.stock]));

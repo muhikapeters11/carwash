@@ -149,6 +149,11 @@ function applyPull(data: Awaited<ReturnType<typeof pullAllData>> | Partial<Await
             if (job?.type === 'product' && job.payload?.id) pendingIds.add(String(job.payload.id));
             if (job?.type === 'stock_receive' && job.payload?.productId) pendingIds.add(String(job.payload.productId));
             if (job?.type === 'stock_audit' && job.payload?.productId) pendingIds.add(String(job.payload.productId));
+            // Keep this device's provisional stock deduction visible until the queued
+            // sale is committed (or explicitly reconciled) by the server.
+            if (job?.type === 'sale' && Array.isArray(job.payload?.items)) {
+              for (const line of job.payload.items) if (line?.product_id) pendingIds.add(String(line.product_id));
+            }
           }
         }
       } catch {
@@ -260,7 +265,7 @@ export default function App() {
         }
       }
       applyPull(data);
-      void flushOfflineQueue((localId, serverSale, stockUpdates) => {
+      await flushOfflineQueue((localId, serverSale, stockUpdates) => {
         useStore.setState((s) => {
           const stockMap = new Map((stockUpdates || []).map((u) => [u.id, u.stock]));
           return {
@@ -289,7 +294,22 @@ export default function App() {
       const st = useStore.getState();
       const data = await pullHotData(st.products);
       applyPull(data);
-      void flushOfflineQueue();
+      // Reconcile offline sales through the same atomic RPC and immediately apply
+      // the authoritative sale + stock returned by Supabase on every sync path.
+      const flushed = await flushOfflineQueue((localId, serverSale, stockUpdates) => {
+        useStore.setState((s) => {
+          const stockMap = new Map((stockUpdates || []).map((u) => [u.id, u.stock]));
+          return {
+            sales: s.sales.map((x) => (x.id === localId ? serverSale : x)),
+            products: s.products.map((p) =>
+              stockMap.has(p.id) ? { ...p, stock: stockMap.get(p.id)! } : p
+            ),
+          };
+        });
+      });
+      // Pull once more after any queued sale commits so the screen reflects the
+      // persisted database state, not a provisional local snapshot.
+      if (flushed.sales > 0) applyPull(await pullHotData(useStore.getState().products));
     } catch (e) {
       console.warn('hot sync failed', e);
     } finally {
